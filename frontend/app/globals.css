@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap');
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --accent: #7c5cff;
+  --accent-2: #b388ff;
+  --accent-soft: rgba(124, 92, 255, 0.14);
+  --bg-0: #0b0c11;
+  --bg-1: #11131a;
+  --bg-2: #171924;
+  --bg-3: #1f2130;
+  --bg-hover: rgba(255,255,255,0.04);
+  --bg-active: rgba(124,92,255,0.14);
+  --line: rgba(255,255,255,0.06);
+  --line-strong: rgba(255,255,255,0.10);
+  --text-0: #f2f2f6;
+  --text-1: #cfd0d8;
+  --text-2: #8a8c99;
+  --text-3: #5d5f6d;
+  --ok: #3ecf8e;
+  --warn: #f5a524;
+  --danger: #ff5a6a;
+  --away: #f5a524;
+}
+
+html[data-theme="light"] {
+  --bg-0: #f6f4ef;
+  --bg-1: #ffffff;
+  --bg-2: #ffffff;
+  --bg-3: #eeece7;
+  --bg-hover: rgba(0,0,0,0.04);
+  --bg-active: rgba(124,92,255,0.12);
+  --line: rgba(0,0,0,0.07);
+  --line-strong: rgba(0,0,0,0.12);
+  --text-0: #14141a;
+  --text-1: #2b2c36;
+  --text-2: #696b79;
+  --text-3: #9a9ca8;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: 'Geist', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.1); }
+html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes ringPulse {
+  0% { box-shadow: 0 0 0 0 rgba(124,92,255,0.5); }
+  70% { box-shadow: 0 0 0 24px rgba(124,92,255,0); }
+  100% { box-shadow: 0 0 0 0 rgba(124,92,255,0); }
+}
+@keyframes speaking {
+  0%,100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
