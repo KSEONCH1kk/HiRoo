@@ -7,6 +7,7 @@ import { getSocket } from "@/lib/socket";
 import { useCallStore } from "@/store/callStore";
 import { usersApi } from "@/lib/api";
 import { playCall, stopCall } from "@/lib/sounds";
+import { ScreenQualityPopover } from "@/components/voice/ScreenQualityPopover";
 import type { UserPublic } from "@/types";
 
 export function VoiceCall() {

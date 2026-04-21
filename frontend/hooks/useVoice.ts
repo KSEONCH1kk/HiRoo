@@ -9,7 +9,7 @@ import {
 import { dmsApi } from "@/lib/api";
 import {
   deriveSharedKey, deriveGroupKey, safetyCode,
-  createEphemeralKeypair, signBundle, verifyBundle, deriveEpochKey,
+  createEphemeralKeypair, signBundle, verifyBundle, deriveEpochKey, bytesToB64,
   type SignedBundle,
 } from "@/lib/e2ee";
 import { voiceApi } from "@/lib/api";
@@ -58,6 +58,8 @@ export function useVoice() {
   const [e2eeActive, setE2eeActive] = useState(false);
   const [e2eeSafety, setE2eeSafety] = useState<string | null>(null);
   const currentRoom = useRef<string | null>(null);
+  const pendingRoom = useRef<string | null>(null);
+  const joinGen = useRef(0);
   const keyProviderRef = useRef<ExternalE2EEKeyProvider | null>(null);
   const currentDmRef = useRef<{ id: string; isGroup: boolean } | null>(null);
   // MLS-lite state for the current voice session
@@ -79,6 +81,7 @@ export function useVoice() {
 
   const joinRoom = useCallback(async (roomName: string, opts?: { video?: boolean }) => {
     if (currentRoom.current === roomName && roomRef.current) return;
+    if (pendingRoom.current === roomName) return;
     setError(null);
 
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
@@ -86,30 +89,39 @@ export function useVoice() {
       return;
     }
 
+    const myGen = ++joinGen.current;
+    pendingRoom.current = roomName;
+
     // Cleanly leave the previous room so we stop hearing old peers
     // and so others see us leave it.
     if (roomRef.current) {
       const leaving = currentRoom.current;
-      try { await roomRef.current.disconnect(); } catch {}
+      const oldRoom = roomRef.current;
+      roomRef.current = null;
+      currentRoom.current = null;
+      try { await oldRoom.disconnect(); } catch {}
       try { getSocket().emit("voice_leave", {}); } catch {}
       const myId = useAuthStore.getState().user?.id;
       if (myId && leaving) useVoicePresenceStore.getState().leave(leaving, myId);
-      roomRef.current = null;
-      currentRoom.current = null;
       setJoined(false);
       setMe(null);
       setRemotes([]);
       setIsMuted(false); setIsDeafened(false); setIsVideo(false); setIsSharing(false);
     }
+    if (joinGen.current !== myGen) return;
 
     let token: string, url: string;
     try {
       const res = await voiceApi.token(roomName);
       token = res.token; url = res.url;
     } catch (e: any) {
-      setError(e?.response?.data?.detail ?? "Голосовой сервер не сконфигурирован");
+      if (joinGen.current === myGen) {
+        setError(e?.response?.data?.detail ?? "Голосовой сервер не сконфигурирован");
+        pendingRoom.current = null;
+      }
       return;
     }
+    if (joinGen.current !== myGen) return;
 
     // Derive E2EE key for DM rooms (automatic MLS-lite: ephemeral + signed handshake)
     let e2eeKey: Uint8Array | null = null;
@@ -133,9 +145,7 @@ export function useVoice() {
 
           // Generate ephemeral keypair for this session
           const eph = await createEphemeralKeypair();
-          const myEphB64 = await import("libsodium-wrappers").then((m) =>
-            m.default.to_base64(eph.publicKey, m.default.base64_variants.ORIGINAL),
-          );
+          const myEphB64 = await bytesToB64(eph.publicKey);
 
           mlsStateRef.current = {
             roomId: roomName,
@@ -172,7 +182,7 @@ export function useVoice() {
             { type: "module" },
           );
           e2eeKeyProvider = new ExternalE2EEKeyProvider();
-          await e2eeKeyProvider.setKey(e2eeKey);
+          await e2eeKeyProvider.setKey(await bytesToB64(e2eeKey));
           keyProviderRef.current = e2eeKeyProvider;
           setE2eeActive(true);
           safetyCode(e2eeKey).then((c) => setE2eeSafety(c));
@@ -213,7 +223,7 @@ export function useVoice() {
       if (!st || !kp) return;
       const all = [st.myEphPkB64, ...Array.from(st.peerEphs.values())];
       const key = await deriveEpochKey(st.roomId, st.epoch, all);
-      try { await kp.setKey(key); } catch {}
+      try { await kp.setKey(await bytesToB64(key)); } catch {}
       setE2eeSafety(await safetyCode(key));
     };
 
@@ -262,7 +272,7 @@ export function useVoice() {
           .sort();
         if (pks.length < 2) return;
         const newKey = await deriveGroupKey(dmInfo.id, pks);
-        await kp.setKey(newKey);
+        await kp.setKey(await bytesToB64(newKey));
         setE2eeSafety(await safetyCode(newKey));
       } catch {}
     };
@@ -311,7 +321,14 @@ export function useVoice() {
     try {
       await room.connect(url, token);
     } catch (e: any) {
-      setError(e?.message ?? "Не удалось подключиться");
+      if (joinGen.current === myGen) {
+        setError(e?.message ?? "Не удалось подключиться");
+        pendingRoom.current = null;
+      }
+      try { await room.disconnect(); } catch {}
+      return;
+    }
+    if (joinGen.current !== myGen) {
       try { await room.disconnect(); } catch {}
       return;
     }
@@ -338,6 +355,7 @@ export function useVoice() {
 
     roomRef.current = room;
     currentRoom.current = roomName;
+    pendingRoom.current = null;
     setJoined(true);
     refresh();
 
@@ -348,8 +366,12 @@ export function useVoice() {
   }, [joined]);
 
   const leaveRoom = useCallback(async () => {
+    joinGen.current += 1;
+    pendingRoom.current = null;
     const r = roomRef.current;
     const leavingRoom = currentRoom.current;
+    roomRef.current = null;
+    currentRoom.current = null;
     if (r) {
       try { await r.disconnect(); } catch {}
     }
@@ -359,8 +381,6 @@ export function useVoice() {
     if (myId && leavingRoom) {
       useVoicePresenceStore.getState().leave(leavingRoom, myId);
     }
-    roomRef.current = null;
-    currentRoom.current = null;
     setJoined(false); setMe(null); setRemotes([]);
     setIsMuted(false); setIsDeafened(false); setIsVideo(false); setIsSharing(false);
   }, []);
