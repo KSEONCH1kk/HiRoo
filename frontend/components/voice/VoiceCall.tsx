@@ -22,6 +22,8 @@ export function VoiceCall() {
         getSocket().emit("voice_ring_cancel", { target_user_id: target, room_id: active.roomId });
       }
     }
+    setRinging(false);
+    stopCall();
     await voice.leaveRoom();
     endCall();
     joinedRef.current = null;
@@ -35,6 +37,8 @@ export function VoiceCall() {
       toggleVideo: voice.toggleVideo,
       toggleScreenShare: voice.toggleScreenShare,
       leave: handleLeave,
+      switchAudioInput: voice.switchAudioInput,
+      switchAudioOutput: voice.switchAudioOutput,
       isMuted: voice.isMuted,
       isDeafened: voice.isDeafened,
       isSharing: voice.isSharing,
@@ -75,6 +79,10 @@ export function VoiceCall() {
   }, [voice.remotes.length]);
 
   useEffect(() => {
+    if (!active) { setRinging(false); stopCall(); }
+  }, [active]);
+
+  useEffect(() => {
     if (ringing) playCall(); else stopCall();
     return () => { stopCall(); };
   }, [ringing]);
@@ -95,11 +103,17 @@ export function VoiceCall() {
   const total = (voice.me ? 1 : 0) + voice.remotes.length;
 
   if (!maximized) {
-    return <FloatingCall title={active.title} voice={voice} userMap={userMap} onMax={() => setMaximized(true)} onLeave={handleLeave} />;
+    return (
+      <>
+        <HiddenAudioLayer remotes={voice.remotes} />
+        <FloatingCall title={active.title} voice={voice} userMap={userMap} onMax={() => setMaximized(true)} onLeave={handleLeave} />
+      </>
+    );
   }
 
   return (
     <div style={{ position: "absolute", inset: 0, zIndex: 40, display: "flex", flexDirection: "column", background: "var(--bg-0)" }}>
+      <HiddenAudioLayer remotes={voice.remotes} />
       <div style={{ height: 48, flexShrink: 0, padding: "0 16px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 12, background: "var(--bg-1)" }}>
         <i className={`fa-solid ${voice.isVideo || voice.isSharing ? "fa-video" : "fa-phone"}`} style={{ color: "var(--ok)", fontSize: 16 }} />
         <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text-0)" }}>{active.title}</span>
@@ -145,6 +159,27 @@ export function VoiceCall() {
   );
 }
 
+function HiddenAudioLayer({ remotes }: { remotes: VoiceParticipant[] }) {
+  return (
+    <div style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }} aria-hidden>
+      {remotes.map((p) => (
+        <RemoteAudio key={p.identity} track={p.audioTrack} />
+      ))}
+    </div>
+  );
+}
+
+function RemoteAudio({ track }: { track: MediaStreamTrack | null }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (track) el.srcObject = new MediaStream([track]);
+    else el.srcObject = null;
+  }, [track]);
+  return <audio ref={ref} autoPlay />;
+}
+
 function FloatingCall({ title, voice, userMap, onMax, onLeave }: { title: string; voice: ReturnType<typeof useVoice>; userMap: Map<string, UserPublic>; onMax: () => void; onLeave: () => Promise<void> }) {
   const speaker = voice.remotes.find((p) => p.isSpeaking) ?? voice.me;
   const profile = speaker ? userMap.get(speaker.identity) : null;
@@ -187,7 +222,6 @@ function FloatingCall({ title, voice, userMap, onMax, onLeave }: { title: string
 
 function Tile({ p, self, profile }: { p: VoiceParticipant; self?: boolean; profile?: UserPublic }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -195,11 +229,6 @@ function Tile({ p, self, profile }: { p: VoiceParticipant; self?: boolean; profi
     const track = p.screenTrack ?? p.cameraTrack;
     if (el && track) el.srcObject = new MediaStream([track]);
   }, [p.cameraTrack, p.screenTrack]);
-
-  useEffect(() => {
-    const el = audioRef.current;
-    if (el && p.audioTrack && !self) el.srcObject = new MediaStream([p.audioTrack]);
-  }, [p.audioTrack, self]);
 
   const toggleFullscreen = () => {
     const el = containerRef.current;
@@ -231,7 +260,6 @@ function Tile({ p, self, profile }: { p: VoiceParticipant; self?: boolean; profi
           <Avatar name={profile?.username ?? p.name} size={76} shape="circle" avatarUrl={profile?.avatar_url} />
         </div>
       )}
-      {!self && <audio ref={audioRef} autoPlay />}
       {video && (
         <button
           onClick={toggleFullscreen}

@@ -25,6 +25,8 @@ export interface VoiceControls {
   toggleVideo: () => void;
   toggleScreenShare: () => void;
   leave: () => Promise<void>;
+  switchAudioInput: (deviceId: string) => Promise<void>;
+  switchAudioOutput: (deviceId: string) => Promise<void>;
   isMuted: boolean;
   isDeafened: boolean;
   isSharing: boolean;

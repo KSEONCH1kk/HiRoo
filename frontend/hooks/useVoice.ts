@@ -3,12 +3,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Room, RoomEvent, Track, RemoteParticipant, LocalParticipant,
   ConnectionState, TrackPublication, RemoteTrackPublication, LocalTrackPublication,
+  VideoPresets, ScreenSharePresets,
 } from "livekit-client";
 import { voiceApi } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/store/authStore";
 import { useVoicePresenceStore } from "@/store/voicePresenceStore";
 import { useCallStore } from "@/store/callStore";
+import { useVoiceSettingsStore } from "@/store/voiceSettingsStore";
 
 export interface VoiceParticipant {
   identity: string;
@@ -92,7 +94,18 @@ export function useVoice() {
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
-      publishDefaults: { dtx: true },
+      publishDefaults: {
+        dtx: true,
+        red: true,
+        videoCodec: "vp8",
+        videoEncoding: { ...VideoPresets.h720.encoding, maxFramerate: 60 },
+        videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
+        screenShareEncoding: { maxBitrate: 6_000_000, maxFramerate: 60 },
+        screenShareSimulcastLayers: [ScreenSharePresets.h720fps15],
+      },
+      videoCaptureDefaults: {
+        resolution: { ...VideoPresets.h720.resolution, frameRate: 60 },
+      },
     });
 
     room
@@ -119,6 +132,16 @@ export function useVoice() {
       try { await room.disconnect(); } catch {}
       return;
     }
+
+    // Apply saved device preferences before enabling tracks
+    const vs = useVoiceSettingsStore.getState();
+    if (vs.inputDeviceId && vs.inputDeviceId !== "default") {
+      try { await room.switchActiveDevice("audioinput", vs.inputDeviceId); } catch {}
+    }
+    if (vs.outputDeviceId && vs.outputDeviceId !== "default") {
+      try { await room.switchActiveDevice("audiooutput", vs.outputDeviceId); } catch {}
+    }
+
     // Media publishing may fail if token doesn't allow it (no SPEAK_VOICE/VIDEO).
     // Don't abort — remain connected in listen-only mode.
     try { await room.localParticipant.setMicrophoneEnabled(true); }
@@ -203,19 +226,37 @@ export function useVoice() {
     if (!r) return;
     const next = !isVideo;
     try {
-      await r.localParticipant.setCameraEnabled(next);
+      await r.localParticipant.setCameraEnabled(next, {
+        resolution: { ...VideoPresets.h720.resolution, frameRate: 60 },
+      });
       setIsVideo(next);
     } catch (e: any) {
       setError(e?.message ?? "Камера недоступна");
     }
   }, [isVideo]);
 
+  const switchAudioInput = useCallback(async (deviceId: string) => {
+    const r = roomRef.current;
+    if (!r) return;
+    try { await r.switchActiveDevice("audioinput", deviceId === "default" ? "" : deviceId); } catch {}
+  }, []);
+
+  const switchAudioOutput = useCallback(async (deviceId: string) => {
+    const r = roomRef.current;
+    if (!r) return;
+    try { await r.switchActiveDevice("audiooutput", deviceId === "default" ? "" : deviceId); } catch {}
+  }, []);
+
   const toggleScreenShare = useCallback(async () => {
     const r = roomRef.current;
     if (!r) return;
     const next = !isSharing;
     try {
-      await r.localParticipant.setScreenShareEnabled(next, { audio: true });
+      await r.localParticipant.setScreenShareEnabled(next, {
+        audio: true,
+        resolution: { width: 1920, height: 1080, frameRate: 60 },
+        contentHint: "motion",
+      });
       setIsSharing(next);
     } catch (e: any) {
       setError(e?.message ?? "Отмена демонстрации");
@@ -231,6 +272,7 @@ export function useVoice() {
   return {
     joinRoom, leaveRoom,
     toggleMute, toggleDeafen, toggleVideo, toggleScreenShare,
+    switchAudioInput, switchAudioOutput,
     joined, error,
     me, remotes,
     isMuted, isDeafened, isVideo, isSharing,

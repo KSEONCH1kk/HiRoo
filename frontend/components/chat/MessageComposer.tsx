@@ -37,6 +37,7 @@ interface Pending {
 }
 
 const MAX_BYTES = 100 * 1024 * 1024;
+const LARGE_MSG_CHARS = 500;
 
 function genId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -188,7 +189,30 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
     if (sending || hasPendingUploads || !hasContent) return;
     setSending(true);
     try {
-      let content = buildMessage();
+      let text = value.trim();
+      const extraUrls: string[] = [];
+
+      // Auto-bundle huge text into message.txt
+      if (text.length > LARGE_MSG_CHARS) {
+        try {
+          const file = new File([text], "message.txt", { type: "text/plain" });
+          const res = await uploadsApi.attachment(file);
+          extraUrls.push(res.url);
+          text = "";
+        } catch {
+          setSending(false);
+          return;
+        }
+      }
+
+      const lines: string[] = [];
+      if (text) lines.push(text);
+      for (const a of attachments) {
+        if (a.uploaded) lines.push(a.uploaded.url);
+      }
+      for (const u of extraUrls) lines.push(u);
+      let content = lines.join("\n");
+
       const reply = replyingTo;
       if (reply && autoPing && reply.username) {
         const escaped = reply.username.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -396,8 +420,14 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
         </button>
       </div>
       </div>
-      <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono", marginTop: 4, display: "flex", justifyContent: "space-between" }}>
-        <span>enter — отправить · shift+enter — перенос · ↑ — редактировать последнее · перетащите файл, чтобы прикрепить</span>
+      <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono", marginTop: 4, display: "flex", justifyContent: "space-between", gap: 10 }}>
+        {value.length > LARGE_MSG_CHARS ? (
+          <span style={{ color: "var(--accent)" }}>
+            длинное сообщение — будет отправлено как <strong>message.txt</strong> ({value.length}/{LARGE_MSG_CHARS})
+          </span>
+        ) : (
+          <span>enter — отправить · shift+enter — перенос · ↑ — редактировать последнее · перетащите файл, чтобы прикрепить</span>
+        )}
         {attachments.length > 0 && <span>{attachments.length} файл(ов) · макс. 100 МБ</span>}
       </div>
     </div>

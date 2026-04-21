@@ -11,13 +11,12 @@ export function CreateChannelModal({ serverId, onClose, initialType = "text" }: 
   const [name, setName] = useState("");
   const [type, setType] = useState<"text" | "voice">(initialType);
   const [topic, setTopic] = useState("");
-  const { channels, setChannels } = useServerStore();
+  const addChannel = useServerStore((s) => s.addChannel);
 
   const create = useMutation({
     mutationFn: () => channelsApi.create(serverId, { name: name.trim().toLowerCase().replace(/\s+/g, "-"), type, topic: topic.trim() || undefined }),
     onSuccess: (channel) => {
-      const existing = channels[serverId] ?? [];
-      setChannels(serverId, [...existing, channel]);
+      addChannel(channel);
       onClose();
     },
   });

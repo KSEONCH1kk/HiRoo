@@ -5,6 +5,7 @@ import { useMessages } from "@/hooks/useMessages";
 import { useAuthStore } from "@/store/authStore";
 import { messagesApi } from "@/lib/api";
 import { useServerRoles } from "@/hooks/useServerRoles";
+import { useServerPermissions } from "@/hooks/useServerPermissions";
 import { Message } from "./Message";
 import { TypingIndicator } from "./TypingIndicator";
 import type { Message as MsgType } from "@/types";
@@ -20,6 +21,8 @@ export function MessageList({ channelId, serverId }: Props) {
   const { messages, addReaction, removeReaction, cancelEdit, updateMessage } = useChatStore();
   const { user } = useAuthStore();
   const { getColor } = useServerRoles(serverId);
+  const { has } = useServerPermissions(serverId);
+  const canManageMessages = has("MANAGE_MESSAGES") || has("MANAGE_SERVER");
   const { loadMore, hasMore, loading } = useMessages(channelId);
 
   const msgs: MsgType[] = messages[channelId] ?? [];
@@ -86,6 +89,7 @@ export function MessageList({ channelId, serverId }: Props) {
               prevAuthorId={prev?.author?.id ?? null}
               currentUserId={user?.id}
               authorColor={msg.author?.id ? getColor(msg.author.id) : null}
+              canManageMessages={canManageMessages}
               onReact={handleReact}
               onEdit={handleEdit}
               onDelete={handleDelete}

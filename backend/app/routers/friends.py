@@ -1,7 +1,7 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, and_
+from sqlalchemy import select, or_, and_, func
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_db, get_current_active_user
@@ -61,7 +61,21 @@ async def send_friend_request(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(select(User).where(User.username == body.username))
+    raw = (body.username or "").strip().lstrip("@")
+    if not raw:
+        raise HTTPException(status_code=400, detail="Укажите имя пользователя")
+    key = raw.lower()
+    result = await db.execute(
+        select(User).where(
+            or_(
+                func.lower(User.username) == key,
+                func.lower(User.display_name) == key,
+            )
+        ).order_by(
+            # Prefer exact username match over display_name match
+            (func.lower(User.username) == key).desc()
+        ).limit(1)
+    )
     target = result.scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="Пользователь не найден")

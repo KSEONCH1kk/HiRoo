@@ -21,7 +21,7 @@ export function IncomingCall() {
         video: !!d.video,
       });
     };
-    const onCancel = () => setIncoming(null);
+    const onCancel = () => { stopCall(); setIncoming(null); };
     s.on("voice_ring", onRing);
     s.on("voice_ring_cancel", onCancel);
     return () => { s.off("voice_ring", onRing); s.off("voice_ring_cancel", onCancel); };

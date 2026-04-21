@@ -15,6 +15,7 @@ interface Props {
   prevAuthorId?: string | null;
   currentUserId?: string;
   authorColor?: string | null;
+  canManageMessages?: boolean;
   onEdit?: (id: string, content: string) => void;
   onDelete?: (id: string) => void;
   onReact?: (id: string, emoji: string) => void;
@@ -22,7 +23,7 @@ interface Props {
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
-export function Message({ message: m, prevAuthorId, currentUserId, authorColor, onEdit, onDelete, onReact }: Props) {
+export function Message({ message: m, prevAuthorId, currentUserId, authorColor, canManageMessages, onEdit, onDelete, onReact }: Props) {
   const [hover, setHover] = useState(false);
   const [editValue, setEditValue] = useState(m.content);
   const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);
@@ -139,7 +140,7 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
           {isMe && <button onClick={() => { startEdit(m.id); }} title="Редактировать" style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-2)", fontSize: 12 }}>
             <i className="fa-solid fa-pen" />
           </button>}
-          {isMe && <button onClick={() => { if (confirm("Удалить сообщение?")) onDelete?.(m.id); }} title="Удалить" style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--danger)", fontSize: 12 }}>
+          {(isMe || canManageMessages) && <button onClick={() => { if (confirm("Удалить сообщение?")) onDelete?.(m.id); }} title="Удалить" style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--danger)", fontSize: 12 }}>
             <i className="fa-solid fa-trash" />
           </button>}
         </div>
