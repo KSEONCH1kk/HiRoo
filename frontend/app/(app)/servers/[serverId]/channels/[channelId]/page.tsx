@@ -90,7 +90,7 @@ export default function ChannelPage({ params }: { params: Params }) {
         <MessageComposer channelId={channelId} serverId={serverId} placeholder={`Написать в #${channel.name}`} onSend={sendMessage} />
       </div>
 
-      {membersOpen && <MembersPanel serverId={serverId} />}
+      {!isMobile && membersOpen && <MembersPanel serverId={serverId} />}
       {searchOpen && (
         <MessageSearchModal
           ctx={{ type: "channel", channelId, serverId }}

@@ -8,6 +8,7 @@ import { usersApi } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
+import { ImageCropModal } from "@/components/modals/ImageCropModal";
 
 const schema = z.object({
   display_name: z.string().max(50).optional(),
@@ -21,6 +22,7 @@ export function ProfileSettings() {
   const { user, updateUser } = useAuthStore();
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [pendingCrop, setPendingCrop] = useState<File | null>(null);
 
   const { register, handleSubmit, formState: { errors, isDirty } } = useForm<Form>({
     resolver: zodResolver(schema),
@@ -40,6 +42,7 @@ export function ProfileSettings() {
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       setUploadError("Выберите изображение");
@@ -49,7 +52,8 @@ export function ProfileSettings() {
       setUploadError("Размер файла не должен превышать 5 МБ");
       return;
     }
-    uploadAvatar.mutate(file);
+    setUploadError(null);
+    setPendingCrop(file);
   };
 
   if (!user) return null;
@@ -118,6 +122,17 @@ export function ProfileSettings() {
           {update.isPending ? "…" : "Сохранить"}
         </Button>
       </div>
+
+      {pendingCrop && (
+        <ImageCropModal
+          file={pendingCrop}
+          title="Обрезать аватар"
+          onConfirm={(blob, filename) => {
+            uploadAvatar.mutate(new File([blob], filename, { type: "image/jpeg" }));
+          }}
+          onClose={() => setPendingCrop(null)}
+        />
+      )}
     </form>
   );
 }

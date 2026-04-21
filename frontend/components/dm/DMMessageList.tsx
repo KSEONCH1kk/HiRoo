@@ -8,7 +8,11 @@ import { MessageContent } from "@/components/chat/MessageContent";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { EmojiPicker } from "@/components/ui/EmojiPicker";
 import { formatMessageTime } from "@/lib/utils";
+import { isEncrypted, decryptDirect, decryptGroup, DIRECT_PREFIX, GROUP_PREFIX } from "@/lib/e2ee";
 import type { DMMessageType } from "@/types";
+
+// Backwards-compat: old messages may still have E2EE ciphertext from previous sessions.
+// Display them decrypted if the current key can open them, otherwise show a hint.
 
 interface Props { dmId: string; }
 
@@ -306,7 +310,7 @@ function DMMessageItem({ msg, grouped, isMe, editing, onStartEdit, onCancelEdit,
             <div style={{ fontSize: 11, color: "var(--text-2)", marginTop: 3 }}>enter — сохранить · esc — отмена</div>
           </div>
         ) : (
-          <MessageContent content={msg.content} />
+          <DecryptedContent msg={msg} />
         )}
         {msg.reactions && msg.reactions.length > 0 && (
           <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
@@ -328,4 +332,41 @@ function DMMessageItem({ msg, grouped, isMe, editing, onStartEdit, onCancelEdit,
       </div>
     </div>
   );
+}
+
+function DecryptedContent({ msg }: { msg: DMMessageType }) {
+  const [text, setText] = useState<string>(() => isEncrypted(msg.content) ? "" : msg.content);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const raw = msg.content || "";
+    if (!isEncrypted(raw)) { setText(raw); setFailed(false); return; }
+    (async () => {
+      try {
+        const senderPk = msg.author?.public_key ?? null;
+        if (raw.startsWith(DIRECT_PREFIX)) {
+          if (!senderPk) throw new Error("no-sender-key");
+          const pt = await decryptDirect(raw, senderPk);
+          if (!cancelled) { setText(pt); setFailed(false); }
+        } else if (raw.startsWith(GROUP_PREFIX)) {
+          const pt = await decryptGroup(raw);
+          if (!cancelled) { setText(pt); setFailed(false); }
+        }
+      } catch {
+        if (!cancelled) { setText(""); setFailed(true); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [msg.id, msg.content, msg.author?.public_key]);
+
+  if (failed) {
+    return (
+      <div style={{ fontSize: 12.5, color: "var(--text-3)", fontStyle: "italic", display: "flex", alignItems: "center", gap: 6 }}>
+        <i className="fa-solid fa-lock" style={{ fontSize: 11 }} />
+        Зашифрованное сообщение — ключ недоступен
+      </div>
+    );
+  }
+  return <MessageContent content={text} />;
 }

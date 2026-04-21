@@ -8,6 +8,7 @@ export interface User {
   custom_status: string | null;
   is_verified: boolean;
   created_at: string;
+  public_key?: string | null;
 }
 
 export interface UserPublic {
@@ -17,6 +18,7 @@ export interface UserPublic {
   avatar_url: string | null;
   status: "online" | "idle" | "dnd" | "offline";
   custom_status: string | null;
+  public_key?: string | null;
 }
 
 export interface Server {

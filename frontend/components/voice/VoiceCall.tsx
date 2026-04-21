@@ -15,6 +15,7 @@ export function VoiceCall() {
 
   const joinedRef = useRef<string | null>(null);
   const [ringing, setRinging] = useState<boolean>(false);
+  const [qualityOpen, setQualityOpen] = useState(false);
 
   const handleLeave = async () => {
     if (ringing && active?.ringUserIds) {
@@ -39,6 +40,7 @@ export function VoiceCall() {
       leave: handleLeave,
       switchAudioInput: voice.switchAudioInput,
       switchAudioOutput: voice.switchAudioOutput,
+      restartScreenShare: voice.restartScreenShare,
       isMuted: voice.isMuted,
       isDeafened: voice.isDeafened,
       isSharing: voice.isSharing,
@@ -117,6 +119,20 @@ export function VoiceCall() {
       <div style={{ height: 48, flexShrink: 0, padding: "0 16px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 12, background: "var(--bg-1)" }}>
         <i className={`fa-solid ${voice.isVideo || voice.isSharing ? "fa-video" : "fa-phone"}`} style={{ color: "var(--ok)", fontSize: 16 }} />
         <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text-0)" }}>{active.title}</span>
+        {voice.e2eeActive && (
+          <span
+            title={voice.e2eeSafety ? `Safety code: ${voice.e2eeSafety}\nСверьте его с собеседником голосом для защиты от MITM.` : "End-to-end encrypted"}
+            style={{
+              fontSize: 10.5, padding: "2px 8px", borderRadius: 4,
+              background: "rgba(62,207,142,0.15)", color: "var(--ok)",
+              fontFamily: "Geist Mono", fontWeight: 600, letterSpacing: 0.4,
+              display: "inline-flex", alignItems: "center", gap: 5, cursor: "help",
+            }}
+          >
+            <i className="fa-solid fa-lock" style={{ fontSize: 9 }} />
+            E2EE
+          </span>
+        )}
         <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: ringing ? "rgba(240,160,80,0.2)" : "var(--ok)", color: ringing ? "#f0a050" : "#fff", fontWeight: 600, letterSpacing: 0.4 }}>
           {ringing ? "ВЫЗОВ" : "В ЭФИРЕ"}
         </span>
@@ -149,7 +165,22 @@ export function VoiceCall() {
       }}>
         <CircleBtn icon={voice.isMuted ? "fa-microphone-slash" : "fa-microphone"} danger={voice.isMuted} onClick={voice.toggleMute} title="Микрофон" />
         <CircleBtn icon={voice.isVideo ? "fa-video" : "fa-video-slash"} active={voice.isVideo} onClick={voice.toggleVideo} title="Камера" />
-        <CircleBtn icon="fa-display" accent={voice.isSharing} onClick={voice.toggleScreenShare} title="Демонстрация экрана" />
+        <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 2 }}>
+          <CircleBtn icon="fa-display" accent={voice.isSharing} onClick={voice.toggleScreenShare} title="Демонстрация экрана" />
+          <button
+            onClick={() => setQualityOpen((v) => !v)}
+            title="Качество демонстрации"
+            style={{
+              width: 22, height: 42, borderRadius: 12, border: "none", cursor: "pointer",
+              background: qualityOpen ? "var(--bg-3)" : "transparent",
+              color: "var(--text-2)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <i className={`fa-solid fa-chevron-${qualityOpen ? "down" : "up"}`} style={{ fontSize: 10 }} />
+          </button>
+          {qualityOpen && <ScreenQualityPopover onClose={() => setQualityOpen(false)} />}
+        </div>
         <CircleBtn icon={voice.isDeafened ? "fa-volume-xmark" : "fa-headphones"} danger={voice.isDeafened} onClick={voice.toggleDeafen} title="Звук" />
         <div style={{ width: 1, height: 24, background: "var(--line-strong)", margin: "0 2px" }} />
         <CircleBtn icon="fa-phone-slash" danger onClick={handleLeave} title="Отключиться" />

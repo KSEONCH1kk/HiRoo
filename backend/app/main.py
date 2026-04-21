@@ -63,6 +63,7 @@ MIGRATIONS = [
         PRIMARY KEY (server_id, user_id)
     )
     """,
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS public_key VARCHAR(128)",
 ]
 
 

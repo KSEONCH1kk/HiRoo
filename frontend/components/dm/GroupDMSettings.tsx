@@ -5,6 +5,7 @@ import { dmsApi } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { useAuthStore } from "@/store/authStore";
+import { ImageCropModal } from "@/components/modals/ImageCropModal";
 import type { DirectMessage } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -86,6 +87,7 @@ function OverviewTab({ dm, isOwner, onClose }: { dm: DirectMessage; isOwner: boo
   const [name, setName] = useState(dm.name ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingCrop, setPendingCrop] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setName(dm.name ?? ""); }, [dm.id, dm.name]);
@@ -156,7 +158,7 @@ function OverviewTab({ dm, isOwner, onClose }: { dm: DirectMessage; isOwner: boo
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadIcon.mutate(f); e.target.value = ""; }}
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) setPendingCrop(f); }}
             />
             <Button variant="soft" onClick={pickIcon} disabled={!isOwner || uploadIcon.isPending}>
               {uploadIcon.isPending ? "Загрузка…" : "Загрузить"}
@@ -207,6 +209,17 @@ function OverviewTab({ dm, isOwner, onClose }: { dm: DirectMessage; isOwner: boo
           {saving ? "Сохранение…" : "Сохранить"}
         </Button>
       </div>
+
+      {pendingCrop && (
+        <ImageCropModal
+          file={pendingCrop}
+          title="Обрезать аватар группы"
+          onConfirm={(blob, filename) => {
+            uploadIcon.mutate(new File([blob], filename, { type: "image/jpeg" }));
+          }}
+          onClose={() => setPendingCrop(null)}
+        />
+      )}
     </div>
   );
 }

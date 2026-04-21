@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.rate_limit import limiter, LIMIT_API
 from app.models.user import User
 from app.schemas.user import UserPublic, UserResponse, UserUpdate, UserStatusUpdate
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -81,6 +82,22 @@ async def upload_avatar(
         await f.write(content)
 
     current_user.avatar_url = f"/uploads/avatars/{filename}"
+    await db.flush()
+    await db.refresh(current_user)
+    return current_user
+
+
+class PublicKeyUpdate(BaseModel):
+    public_key: str = Field(..., min_length=8, max_length=128)
+
+
+@router.post("/me/key", response_model=UserResponse)
+async def set_my_public_key(
+    body: PublicKeyUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    current_user.public_key = body.public_key
     await db.flush()
     await db.refresh(current_user)
     return current_user

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { serversApi } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Toggle";
+import { ImageCropModal } from "@/components/modals/ImageCropModal";
 import type { Server } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -20,6 +21,7 @@ export function OverviewTab({ server }: { server: Server }) {
   const [description, setDescription] = useState(server.description ?? "");
   const [confirmDelete, setConfirmDelete] = useState("");
   const [iconError, setIconError] = useState<string | null>(null);
+  const [pendingCrop, setPendingCrop] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
   const router = useRouter();
@@ -52,10 +54,12 @@ export function OverviewTab({ server }: { server: Server }) {
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) { setIconError("Выберите изображение"); return; }
     if (file.size > 5 * 1024 * 1024) { setIconError("Файл больше 5 МБ"); return; }
-    uploadIcon.mutate(file);
+    setIconError(null);
+    setPendingCrop(file);
   };
 
   const iconUrl = resolveIcon(server.icon_url);
@@ -184,6 +188,17 @@ export function OverviewTab({ server }: { server: Server }) {
           </Button>
         </div>
       </div>
+
+      {pendingCrop && (
+        <ImageCropModal
+          file={pendingCrop}
+          title="Обрезать иконку сервера"
+          onConfirm={(blob, filename) => {
+            uploadIcon.mutate(new File([blob], filename, { type: "image/jpeg" }));
+          }}
+          onClose={() => setPendingCrop(null)}
+        />
+      )}
     </div>
   );
 }

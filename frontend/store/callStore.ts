@@ -27,6 +27,7 @@ export interface VoiceControls {
   leave: () => Promise<void>;
   switchAudioInput: (deviceId: string) => Promise<void>;
   switchAudioOutput: (deviceId: string) => Promise<void>;
+  restartScreenShare: () => Promise<void>;
   isMuted: boolean;
   isDeafened: boolean;
   isSharing: boolean;

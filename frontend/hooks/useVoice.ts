@@ -4,13 +4,16 @@ import {
   Room, RoomEvent, Track, RemoteParticipant, LocalParticipant,
   ConnectionState, TrackPublication, RemoteTrackPublication, LocalTrackPublication,
   VideoPresets, ScreenSharePresets,
+  ExternalE2EEKeyProvider,
 } from "livekit-client";
+import { dmsApi } from "@/lib/api";
+import { deriveSharedKey, deriveGroupKey, safetyCode } from "@/lib/e2ee";
 import { voiceApi } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/store/authStore";
 import { useVoicePresenceStore } from "@/store/voicePresenceStore";
 import { useCallStore } from "@/store/callStore";
-import { useVoiceSettingsStore } from "@/store/voiceSettingsStore";
+import { useVoiceSettingsStore, screenResolutionSize, screenBitrate } from "@/store/voiceSettingsStore";
 
 export interface VoiceParticipant {
   identity: string;
@@ -48,7 +51,11 @@ export function useVoice() {
   const [isDeafened, setIsDeafened] = useState(false);
   const [isVideo, setIsVideo] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [e2eeActive, setE2eeActive] = useState(false);
+  const [e2eeSafety, setE2eeSafety] = useState<string | null>(null);
   const currentRoom = useRef<string | null>(null);
+  const keyProviderRef = useRef<ExternalE2EEKeyProvider | null>(null);
+  const currentDmRef = useRef<{ id: string; isGroup: boolean } | null>(null);
 
   const refresh = () => {
     const r = roomRef.current;
@@ -91,6 +98,52 @@ export function useVoice() {
       return;
     }
 
+    // Derive E2EE key for DM rooms (automatic, no passphrase)
+    let e2eeKey: Uint8Array | null = null;
+    let e2eeKeyProvider: ExternalE2EEKeyProvider | null = null;
+    let e2eeWorker: Worker | null = null;
+    currentDmRef.current = null;
+    setE2eeActive(false);
+    setE2eeSafety(null);
+    if (roomName.startsWith("dm:")) {
+      try {
+        const dmId = roomName.slice(3);
+        const dm = await dmsApi.get(dmId);
+        const myId = useAuthStore.getState().user?.id;
+        if (myId && dm.participants.length >= 2) {
+          const others = dm.participants.filter((p) => p.user.id !== myId);
+          if (!dm.is_group && others.length === 1 && others[0].user.public_key) {
+            e2eeKey = await deriveSharedKey(others[0].user.public_key);
+          } else {
+            const pks = dm.participants
+              .map((p) => p.user.public_key)
+              .filter((k): k is string => !!k)
+              .sort();
+            if (pks.length >= 2) e2eeKey = await deriveGroupKey(dmId, pks);
+          }
+          currentDmRef.current = { id: dmId, isGroup: dm.is_group };
+        }
+      } catch {}
+      if (e2eeKey) {
+        try {
+          e2eeWorker = new Worker(
+            new URL("livekit-client/e2ee-worker", import.meta.url),
+            { type: "module" },
+          );
+          e2eeKeyProvider = new ExternalE2EEKeyProvider();
+          await e2eeKeyProvider.setKey(e2eeKey);
+          keyProviderRef.current = e2eeKeyProvider;
+          setE2eeActive(true);
+          safetyCode(e2eeKey).then((c) => setE2eeSafety(c));
+        } catch {
+          e2eeKey = null;
+          e2eeKeyProvider = null;
+          e2eeWorker = null;
+          keyProviderRef.current = null;
+        }
+      }
+    }
+
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
@@ -106,11 +159,33 @@ export function useVoice() {
       videoCaptureDefaults: {
         resolution: { ...VideoPresets.h720.resolution, frameRate: 60 },
       },
+      ...(e2eeKeyProvider && e2eeWorker ? { e2ee: { keyProvider: e2eeKeyProvider, worker: e2eeWorker } } : {}),
     });
 
+    if (e2eeKeyProvider) {
+      try { await room.setE2EEEnabled(true); } catch {}
+    }
+
+    const rotateGroupKeyIfNeeded = async () => {
+      const dmInfo = currentDmRef.current;
+      const kp = keyProviderRef.current;
+      if (!dmInfo || !dmInfo.isGroup || !kp) return;
+      try {
+        const dm = await dmsApi.get(dmInfo.id);
+        const pks = dm.participants
+          .map((p) => p.user.public_key)
+          .filter((k): k is string => !!k)
+          .sort();
+        if (pks.length < 2) return;
+        const newKey = await deriveGroupKey(dmInfo.id, pks);
+        await kp.setKey(newKey);
+        setE2eeSafety(await safetyCode(newKey));
+      } catch {}
+    };
+
     room
-      .on(RoomEvent.ParticipantConnected, refresh)
-      .on(RoomEvent.ParticipantDisconnected, refresh)
+      .on(RoomEvent.ParticipantConnected, () => { rotateGroupKeyIfNeeded(); refresh(); })
+      .on(RoomEvent.ParticipantDisconnected, () => { rotateGroupKeyIfNeeded(); refresh(); })
       .on(RoomEvent.TrackSubscribed, refresh)
       .on(RoomEvent.TrackUnsubscribed, refresh)
       .on(RoomEvent.TrackMuted, refresh)
@@ -247,21 +322,45 @@ export function useVoice() {
     try { await r.switchActiveDevice("audiooutput", deviceId === "default" ? "" : deviceId); } catch {}
   }, []);
 
-  const toggleScreenShare = useCallback(async () => {
+  const startScreenShareWithQuality = useCallback(async () => {
     const r = roomRef.current;
     if (!r) return;
-    const next = !isSharing;
+    const vs = useVoiceSettingsStore.getState();
+    const size = screenResolutionSize(vs.screenResolution);
     try {
-      await r.localParticipant.setScreenShareEnabled(next, {
+      await r.localParticipant.setScreenShareEnabled(true, {
         audio: true,
-        resolution: { width: 1920, height: 1080, frameRate: 60 },
+        resolution: { ...size, frameRate: vs.screenFps },
         contentHint: "motion",
+      }, {
+        screenShareEncoding: {
+          maxBitrate: screenBitrate(vs.screenResolution, vs.screenFps),
+          maxFramerate: vs.screenFps,
+        },
       });
-      setIsSharing(next);
+      setIsSharing(true);
     } catch (e: any) {
       setError(e?.message ?? "Отмена демонстрации");
     }
-  }, [isSharing]);
+  }, []);
+
+  const toggleScreenShare = useCallback(async () => {
+    const r = roomRef.current;
+    if (!r) return;
+    if (isSharing) {
+      try { await r.localParticipant.setScreenShareEnabled(false); } catch {}
+      setIsSharing(false);
+      return;
+    }
+    await startScreenShareWithQuality();
+  }, [isSharing, startScreenShareWithQuality]);
+
+  const restartScreenShare = useCallback(async () => {
+    const r = roomRef.current;
+    if (!r || !isSharing) return;
+    try { await r.localParticipant.setScreenShareEnabled(false); } catch {}
+    await startScreenShareWithQuality();
+  }, [isSharing, startScreenShareWithQuality]);
 
   useEffect(() => {
     return () => {
@@ -272,9 +371,10 @@ export function useVoice() {
   return {
     joinRoom, leaveRoom,
     toggleMute, toggleDeafen, toggleVideo, toggleScreenShare,
-    switchAudioInput, switchAudioOutput,
+    switchAudioInput, switchAudioOutput, restartScreenShare,
     joined, error,
     me, remotes,
     isMuted, isDeafened, isVideo, isSharing,
+    e2eeActive, e2eeSafety,
   };
 }

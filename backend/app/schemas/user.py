@@ -49,6 +49,7 @@ class UserResponse(BaseModel):
     custom_status: str | None
     is_verified: bool
     created_at: datetime
+    public_key: str | None = None
 
 
 class UserPublic(BaseModel):
@@ -60,6 +61,7 @@ class UserPublic(BaseModel):
     avatar_url: str | None
     status: str
     custom_status: str | None
+    public_key: str | None = None
 
 
 class TokenResponse(BaseModel):
