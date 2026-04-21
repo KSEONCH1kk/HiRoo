@@ -14,7 +14,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.rate_limit import limiter
 from app.middleware.security import SecurityHeadersMiddleware
 from app.middleware.logging import LoggingMiddleware
-from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl
+from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy
 from app.routers import webhooks as webhooks_router
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
@@ -134,6 +134,7 @@ app.include_router(roles.router)
 app.include_router(unfurl.router)
 app.include_router(webhooks_router.channel_router)
 app.include_router(webhooks_router.public_router)
+app.include_router(proxy.router)
 
 
 @app.get("/health")

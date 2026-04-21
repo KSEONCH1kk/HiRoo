@@ -4,11 +4,12 @@ import {
   Room, RoomEvent, Track, RemoteParticipant, LocalParticipant,
   ConnectionState, TrackPublication, RemoteTrackPublication, LocalTrackPublication,
   VideoPresets, ScreenSharePresets,
-  ExternalE2EEKeyProvider,
 } from "livekit-client";
-import { dmsApi, voiceApi } from "@/lib/api";
+import { HiRooKeyProvider } from "@/lib/e2eeKeyProvider";
+import { dmsApi, voiceApi, usersApi } from "@/lib/api";
 import {
   deriveSharedKey, deriveGroupKey, safetyCode, bytesToB64,
+  randomSessionKey, sealTo, openSealed,
 } from "@/lib/e2ee";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/store/authStore";
@@ -57,8 +58,10 @@ export function useVoice() {
   const currentRoom = useRef<string | null>(null);
   const pendingRoom = useRef<string | null>(null);
   const joinGen = useRef(0);
-  const keyProviderRef = useRef<ExternalE2EEKeyProvider | null>(null);
+  const keyProviderRef = useRef<HiRooKeyProvider | null>(null);
   const currentDmRef = useRef<{ id: string; isGroup: boolean } | null>(null);
+  const mySessionKey = useRef<Uint8Array | null>(null);
+  const peerKeys = useRef<Map<string, Uint8Array>>(new Map());
 
   const refresh = () => {
     const r = roomRef.current;
@@ -80,8 +83,6 @@ export function useVoice() {
     const myGen = ++joinGen.current;
     pendingRoom.current = roomName;
 
-    // Cleanly leave the previous room so we stop hearing old peers
-    // and so others see us leave it.
     if (roomRef.current) {
       const leaving = currentRoom.current;
       const oldRoom = roomRef.current;
@@ -111,11 +112,17 @@ export function useVoice() {
     }
     if (joinGen.current !== myGen) return;
 
-    // Derive static E2EE key for DM rooms from identity public keys
+    // E2EE setup. Two modes:
+    //   • DM rooms — static key derived from participants' identity pubkeys.
+    //   • Channel rooms — per-sender keys: each peer has its own random session key
+    //     and shares it with others via sealed_box (anonymous PK encryption).
     let e2eeKey: Uint8Array | null = null;
-    let e2eeKeyProvider: ExternalE2EEKeyProvider | null = null;
+    let e2eeKeyProvider: HiRooKeyProvider | null = null;
     let e2eeWorker: Worker | null = null;
+    let e2eeMode: "dm-static" | "channel-per-sender" | null = null;
     currentDmRef.current = null;
+    mySessionKey.current = null;
+    peerKeys.current.clear();
     setE2eeActive(false);
     setE2eeSafety(null);
     if (roomName.startsWith("dm:")) {
@@ -124,9 +131,6 @@ export function useVoice() {
         const dm = await dmsApi.get(dmId);
         const myId = useAuthStore.getState().user?.id;
         if (myId && dm.participants.length >= 2) {
-          // Static identity-derived key: stable for the whole call, so LiveKit's
-          // e2ee worker never needs to rotate key[0] mid-session (which caused
-          // decryption failures & auto-muted tracks).
           currentDmRef.current = { id: dmId, isGroup: dm.is_group };
           const others = dm.participants.filter((p) => p.user.id !== myId);
           if (!dm.is_group && others.length === 1 && others[0].user.public_key) {
@@ -146,9 +150,10 @@ export function useVoice() {
             new URL("livekit-client/e2ee-worker", import.meta.url),
             { type: "module" },
           );
-          e2eeKeyProvider = new ExternalE2EEKeyProvider();
+          e2eeKeyProvider = new HiRooKeyProvider();
           await e2eeKeyProvider.setKey(await bytesToB64(e2eeKey));
           keyProviderRef.current = e2eeKeyProvider;
+          e2eeMode = "dm-static";
           setE2eeActive(true);
           safetyCode(e2eeKey).then((c) => setE2eeSafety(c));
         } catch {
@@ -157,6 +162,25 @@ export function useVoice() {
           e2eeWorker = null;
           keyProviderRef.current = null;
         }
+      }
+    } else if (roomName.startsWith("channel:")) {
+      try {
+        const sessionKey = randomSessionKey();
+        mySessionKey.current = sessionKey;
+        e2eeWorker = new Worker(
+          new URL("livekit-client/e2ee-worker", import.meta.url),
+          { type: "module" },
+        );
+        e2eeKeyProvider = new HiRooKeyProvider();
+        await e2eeKeyProvider.setKey(await bytesToB64(sessionKey));
+        keyProviderRef.current = e2eeKeyProvider;
+        e2eeMode = "channel-per-sender";
+        setE2eeActive(true);
+      } catch {
+        mySessionKey.current = null;
+        e2eeKeyProvider = null;
+        e2eeWorker = null;
+        keyProviderRef.current = null;
       }
     }
 
@@ -182,9 +206,56 @@ export function useVoice() {
       try { await room.setE2EEEnabled(true); } catch {}
     }
 
+    // ── Per-sender key distribution (channel rooms only) ──────────────────
+    const sock = getSocket();
+    const sendMyKeyTo = async (targetUserId: string) => {
+      const key = mySessionKey.current;
+      const kp = keyProviderRef.current;
+      if (!key || !kp || e2eeMode !== "channel-per-sender") return;
+      try {
+        const u = await usersApi.get(targetUserId);
+        if (!u.public_key) return;
+        const sealed = sealTo(key, u.public_key);
+        sock.emit("voice_key_distribute", {
+          room_id: roomName,
+          target_user_id: targetUserId,
+          sealed,
+        });
+      } catch {}
+    };
+
+    const onKeyDistribute = async (msg: { room_id: string; from_user_id: string; sealed: string }) => {
+      if (msg.room_id !== roomName) return;
+      if (e2eeMode !== "channel-per-sender") return;
+      const kp = keyProviderRef.current;
+      if (!kp) return;
+      const opened = openSealed(msg.sealed);
+      if (!opened) return;
+      const hadBefore = peerKeys.current.has(msg.from_user_id);
+      peerKeys.current.set(msg.from_user_id, opened);
+      try {
+        await kp.setKey(await bytesToB64(opened), msg.from_user_id);
+      } catch {}
+      // Reciprocate if we haven't yet sent our key to them (covers the race
+      // where their ParticipantConnected fires on us before their voice_join
+      // reaches the server).
+      if (!hadBefore) sendMyKeyTo(msg.from_user_id);
+    };
+
+    sock.on("voice_key_distribute", onKeyDistribute);
+    const detachKey = () => { sock.off("voice_key_distribute", onKeyDistribute); };
+
     room
-      .on(RoomEvent.ParticipantConnected, refresh)
-      .on(RoomEvent.ParticipantDisconnected, refresh)
+      .on(RoomEvent.ParticipantConnected, (p) => {
+        if (e2eeMode === "channel-per-sender" && p?.identity) {
+          sendMyKeyTo(p.identity);
+        }
+        refresh();
+      })
+      .on(RoomEvent.ParticipantDisconnected, (p) => {
+        if (p?.identity) peerKeys.current.delete(p.identity);
+        refresh();
+      })
       .on(RoomEvent.TrackSubscribed, refresh)
       .on(RoomEvent.TrackUnsubscribed, refresh)
       .on(RoomEvent.TrackMuted, refresh)
@@ -198,6 +269,9 @@ export function useVoice() {
         setRemotes([]);
         currentRoom.current = null;
         keyProviderRef.current = null;
+        mySessionKey.current = null;
+        peerKeys.current.clear();
+        detachKey();
       });
 
     try {
@@ -215,7 +289,6 @@ export function useVoice() {
       return;
     }
 
-    // Apply saved device preferences before enabling tracks
     const vs = useVoiceSettingsStore.getState();
     if (vs.inputDeviceId && vs.inputDeviceId !== "default") {
       try { await room.switchActiveDevice("audioinput", vs.inputDeviceId); } catch {}
@@ -224,8 +297,6 @@ export function useVoice() {
       try { await room.switchActiveDevice("audiooutput", vs.outputDeviceId); } catch {}
     }
 
-    // Media publishing may fail if token doesn't allow it (no SPEAK_VOICE/VIDEO).
-    // Don't abort — remain connected in listen-only mode.
     try { await room.localParticipant.setMicrophoneEnabled(true); }
     catch { setIsMuted(true); }
     if (opts?.video) {
@@ -241,8 +312,13 @@ export function useVoice() {
     setJoined(true);
     refresh();
 
-    // Broadcast presence to our WS so others see this user in the room
     try { getSocket().emit("voice_join", { room_id: roomName }); } catch {}
+
+    if (e2eeMode === "channel-per-sender") {
+      for (const p of room.remoteParticipants.values()) {
+        if (p.identity) sendMyKeyTo(p.identity);
+      }
+    }
   }, [joined]);
 
   const leaveRoom = useCallback(async () => {
@@ -256,7 +332,6 @@ export function useVoice() {
       try { await r.disconnect(); } catch {}
     }
     try { getSocket().emit("voice_leave", {}); } catch {}
-    // Remove self from local presence store (server broadcasts voice_peer_left to *others*)
     const myId = useAuthStore.getState().user?.id;
     if (myId && leavingRoom) {
       useVoicePresenceStore.getState().leave(leavingRoom, myId);
@@ -291,7 +366,6 @@ export function useVoice() {
       return;
     }
     setIsDeafened(next);
-    // Mute all remote audio tracks locally
     r.remoteParticipants.forEach((p) => {
       p.trackPublications.forEach((pub) => {
         const rpub = pub as RemoteTrackPublication;

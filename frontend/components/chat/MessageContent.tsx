@@ -4,6 +4,7 @@ import { VideoPlayer } from "./VideoPlayer";
 import { LinkEmbed } from "./LinkEmbed";
 import { ViewerImage } from "./ViewerImage";
 import { YouTubeEmbed, parseYouTubeId } from "./YouTubeEmbed";
+import { ProxiedVideo } from "./ProxiedVideo";
 import { CodeBlock } from "./CodeBlock";
 import { Markdown } from "./Markdown";
 import { EmbedCard } from "./EmbedCard";
@@ -49,8 +50,26 @@ function isSameOrigin(u: string): boolean {
 
 interface Props { content: string; embeds?: Embed[] | null; }
 
-export function MessageContent({ content, embeds }: Props) {
+// Extracts "!pr <youtube-url>" lines (anywhere in the message) and returns
+// the cleaned content + list of youtube URLs to proxy.
+function extractProxiedYouTube(content: string): { text: string; proxyUrls: string[] } {
+  const proxyUrls: string[] = [];
   const lines = content.split("\n");
+  const kept: string[] = [];
+  for (const line of lines) {
+    const m = line.match(/^\s*!pr\s+(\S+)\s*$/);
+    if (m) {
+      const url = m[1];
+      if (parseYouTubeId(url)) { proxyUrls.push(url); continue; }
+    }
+    kept.push(line);
+  }
+  return { text: kept.join("\n"), proxyUrls };
+}
+
+export function MessageContent({ content, embeds }: Props) {
+  const { text: strippedContent, proxyUrls } = extractProxiedYouTube(content);
+  const lines = strippedContent.split("\n");
   const textLines: string[] = [];
   const attachments: string[] = [];
 
@@ -69,6 +88,11 @@ export function MessageContent({ content, embeds }: Props) {
         seg.type === "code"
           ? <CodeBlock key={`cb-${i}`} code={seg.content} lang={seg.lang} />
           : seg.content.trim() ? <Markdown key={`t-${i}`} text={seg.content} /> : null
+      )}
+      {proxyUrls.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {proxyUrls.map((u, i) => <ProxiedVideo key={`p-${i}-${u}`} youtubeUrl={u} />)}
+        </div>
       )}
       {embeds && embeds.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

@@ -94,6 +94,26 @@ export async function decryptDirect(payload: string, theirPublicKeyB64: string):
   return encodeUTF8(pt);
 }
 
+/** Encrypt arbitrary bytes to a recipient's box public key (anonymous, sealed_box). */
+export function sealTo(message: Uint8Array, recipientPublicKeyB64: string): string {
+  const theirPk = decodeBase64(recipientPublicKeyB64);
+  return encodeBase64(sealedbox.seal(message, theirPk));
+}
+
+/** Open a sealed envelope with our own box keypair. Returns null if it wasn't for us. */
+export function openSealed(envelopeB64: string): Uint8Array | null {
+  const sk = getMyBoxSecretKeyBytes();
+  const pkB = getMyPublicKey();
+  if (!sk || !pkB) return null;
+  const pk = decodeBase64(pkB);
+  return sealedbox.open(decodeBase64(envelopeB64), pk, sk);
+}
+
+/** Generate a 32-byte random session key for frame encryption. */
+export function randomSessionKey(): Uint8Array {
+  return nacl.randomBytes(32);
+}
+
 export interface GroupRecipient { userId: string; publicKey: string; }
 
 export async function encryptGroup(plaintext: string, recipients: GroupRecipient[]): Promise<string> {

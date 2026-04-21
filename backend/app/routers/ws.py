@@ -587,6 +587,27 @@ async def websocket_endpoint(
                         },
                     })
 
+            elif event == "voice_key_distribute":
+                # Per-sender E2EE key relay: sender encrypts its frame-key with
+                # recipient's box public key (sealed_box) and asks us to deliver it.
+                room_id = payload.get("room_id")
+                target_user_id = payload.get("target_user_id")
+                sealed = payload.get("sealed")
+                if not room_id or not target_user_id or not sealed:
+                    continue
+                if manager.voice_room_of(str(user.id)) != room_id:
+                    continue
+                if manager.voice_room_of(str(target_user_id)) != room_id:
+                    continue
+                await manager.send_to_user(str(target_user_id), {
+                    "event": "voice_key_distribute",
+                    "data": {
+                        "room_id": room_id,
+                        "from_user_id": str(user.id),
+                        "sealed": sealed,
+                    },
+                })
+
             elif event == "voice_ring":
                 target_id = payload.get("target_user_id")
                 room_id = payload.get("room_id")
