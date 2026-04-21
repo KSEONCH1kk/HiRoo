@@ -16,7 +16,7 @@ export function AddFriendModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", animation: "fadeIn 160ms ease-out" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 480, borderRadius: 16, background: "var(--bg-2)", border: "1px solid var(--line-strong)", padding: 28, boxShadow: "0 30px 80px rgba(0,0,0,0.5)" }}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-panel" style={{ width: 480, borderRadius: 16, background: "var(--bg-2)", border: "1px solid var(--line-strong)", padding: 28, boxShadow: "0 30px 80px rgba(0,0,0,0.5)" }}>
         <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-0)", marginBottom: 6, letterSpacing: -0.4 }}>Добавить друга</div>
         <div style={{ fontSize: 13.5, color: "var(--text-2)", marginBottom: 20 }}>Введите имя пользователя для отправки заявки</div>
 

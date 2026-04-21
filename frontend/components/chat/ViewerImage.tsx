@@ -1,5 +1,6 @@
 "use client";
 import { useImageViewerStore } from "@/store/imageViewerStore";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface Props {
   src: string;
@@ -11,6 +12,7 @@ interface Props {
 
 export function ViewerImage({ src, filename, maxWidth = 420, maxHeight = 360, style }: Props) {
   const open = useImageViewerStore((s) => s.open);
+  const isMobile = useIsMobile();
   return (
     <img
       src={src}
@@ -19,7 +21,10 @@ export function ViewerImage({ src, filename, maxWidth = 420, maxHeight = 360, st
       draggable={false}
       onClick={(e) => { e.stopPropagation(); open(src, filename ?? null); }}
       style={{
-        maxWidth: "100%", maxHeight, width: maxWidth, height: "auto",
+        width: "100%",
+        maxWidth: isMobile ? "100%" : maxWidth,
+        maxHeight: isMobile ? "70vh" : maxHeight,
+        height: "auto",
         objectFit: "contain",
         borderRadius: 8, border: "1px solid var(--line)", display: "block",
         cursor: "zoom-in",

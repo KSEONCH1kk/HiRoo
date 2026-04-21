@@ -35,6 +35,7 @@ export function GroupDMSettings({ dm, onClose }: Props) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="modal-panel"
         style={{
           width: 560, maxHeight: "86vh", display: "flex", flexDirection: "column",
           background: "var(--bg-1)", border: "1px solid var(--line-strong)",

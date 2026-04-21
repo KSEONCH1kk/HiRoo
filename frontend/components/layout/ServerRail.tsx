@@ -127,6 +127,9 @@ export function ServerRail({ servers, activeServerId, activeMode, onPickServer, 
       borderRight: "1px solid var(--line)",
       display: "flex", flexDirection: "column", alignItems: "center",
       paddingTop: 10, gap: 2, overflowY: "auto", overflowX: "hidden",
+      minHeight: 0, height: "100%",
+      WebkitOverflowScrolling: "touch" as any,
+      overscrollBehavior: "contain",
     }}>
       {/* Logo */}
       <div style={{ position: "relative", height: 52, display: "flex", alignItems: "center", justifyContent: "center" }}>

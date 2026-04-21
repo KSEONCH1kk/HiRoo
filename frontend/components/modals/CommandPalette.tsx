@@ -131,7 +131,7 @@ export function CommandPalette({ show, onClose }: { show: boolean; onClose: () =
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 110, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 100, animation: "fadeIn 140ms ease-out" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 620, maxHeight: "70vh", display: "flex", flexDirection: "column", borderRadius: 14, background: "var(--bg-2)", border: "1px solid var(--line-strong)", boxShadow: "0 30px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-panel" style={{ width: 620, maxHeight: "70vh", display: "flex", flexDirection: "column", borderRadius: 14, background: "var(--bg-2)", border: "1px solid var(--line-strong)", boxShadow: "0 30px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
         <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 10 }}>
           <i className="fa-solid fa-magnifying-glass" style={{ color: "var(--text-2)", fontSize: 16 }} />
           <input

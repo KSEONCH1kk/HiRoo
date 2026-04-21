@@ -7,6 +7,7 @@ import { MentionMenu, type MentionItem } from "./MentionMenu";
 import { useServerRoles } from "@/hooks/useServerRoles";
 import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface Props {
   placeholder: string;
@@ -62,6 +63,8 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
   const { startEditLast, startEditLastDM } = useChatStore();
   const { user } = useAuthStore();
   const { members } = useServerRoles(serverId ?? null);
+  const isMobile = useIsMobile();
+  const [attachmentsExpanded, setAttachmentsExpanded] = useState(false);
   const [mention, setMention] = useState<{ query: string; start: number; end: number } | null>(null);
   const roomKey = channelId ?? dmId ?? "";
   const replyingTo = useChatStore((s) => (roomKey ? s.replyingTo[roomKey] : null)) ?? null;
@@ -236,7 +239,7 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
 
   return (
     <div
-      style={{ padding: "0 16px 20px" }}
+      style={{ padding: isMobile ? "0 10px 10px" : "0 16px 20px" }}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
@@ -276,11 +279,52 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
           </button>
         </div>
       )}
-      {attachments.length > 0 && (
+      {attachments.length > 0 && isMobile && !attachmentsExpanded && (
+        <div
+          onClick={() => setAttachmentsExpanded(true)}
+          style={{
+            background: "var(--bg-2)", borderRadius: 10, border: "1px solid var(--line)",
+            padding: "8px 12px", marginBottom: 6,
+            display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+          }}
+        >
+          <i className="fa-solid fa-paperclip" style={{ fontSize: 13, color: "var(--accent)" }} />
+          <span style={{ flex: 1, fontSize: 13, color: "var(--text-1)" }}>
+            {attachments.length} файл{attachments.length === 1 ? "" : attachments.length < 5 ? "а" : "ов"}
+            {attachments.some((a) => !a.uploaded && !a.error) && (
+              <span style={{ marginLeft: 6, color: "var(--text-3)", fontSize: 11, fontFamily: "Geist Mono" }}>· загрузка…</span>
+            )}
+          </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              attachments.forEach((a) => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl); });
+              setAttachments([]);
+            }}
+            title="Удалить все"
+            style={{ width: 24, height: 24, border: "none", cursor: "pointer", background: "transparent", color: "var(--danger)", borderRadius: 6 }}
+          >
+            <i className="fa-solid fa-xmark" style={{ fontSize: 12 }} />
+          </button>
+          <i className="fa-solid fa-chevron-down" style={{ fontSize: 11, color: "var(--text-3)" }} />
+        </div>
+      )}
+      {attachments.length > 0 && (!isMobile || attachmentsExpanded) && (
         <div style={{
           background: "var(--bg-2)", borderRadius: 12, border: "1px solid var(--line)",
           padding: 10, marginBottom: 6, display: "flex", flexWrap: "wrap", gap: 8,
+          maxHeight: isMobile ? 220 : undefined, overflowY: isMobile ? "auto" : undefined,
+          position: "relative",
         }}>
+          {isMobile && (
+            <button
+              onClick={() => setAttachmentsExpanded(false)}
+              title="Свернуть"
+              style={{ position: "absolute", top: 4, right: 4, width: 24, height: 24, border: "none", cursor: "pointer", background: "var(--bg-3)", color: "var(--text-1)", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1 }}
+            >
+              <i className="fa-solid fa-chevron-up" style={{ fontSize: 10 }} />
+            </button>
+          )}
           {attachments.map((a) => (
             <div key={a.id} style={{
               position: "relative", width: 120, borderRadius: 8,
@@ -341,34 +385,73 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
           onClose={() => setMention(null)}
         />
       )}
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
+        style={{ display: "none" }}
+      />
+
+      {isMobile && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6, marginBottom: 6,
+          padding: "0 2px",
+        }}>
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            title="Прикрепить файл"
+            style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid var(--line)", background: "var(--bg-2)", color: "var(--text-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
+            <i className="fa-solid fa-plus" style={{ fontSize: 14 }} />
+          </button>
+          <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              title="Эмодзи"
+              onClick={() => setEmojiOpen((v) => !v)}
+              style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid var(--line)", background: "var(--bg-2)", color: emojiOpen ? "var(--accent)" : "var(--text-1)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+            >
+              <i className="fa-regular fa-face-smile" style={{ fontSize: 14 }} />
+            </button>
+            {emojiOpen && (
+              <EmojiPicker onPick={(e) => insertEmoji(e)} onClose={() => setEmojiOpen(false)} anchor="bottom-right" />
+            )}
+          </div>
+          <div style={{ flex: 1 }} />
+          {attachments.length > 0 && (
+            <span style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono" }}>
+              {attachments.length} файл(ов)
+            </span>
+          )}
+        </div>
+      )}
+
       <div style={{
         background: "var(--bg-2)", borderRadius: 12,
         border: `1px solid ${dragOver ? "var(--accent)" : "var(--line)"}`,
-        padding: "8px 10px", display: "flex", alignItems: "flex-end", gap: 8,
+        padding: isMobile ? "6px 8px" : "8px 10px",
+        display: "flex", alignItems: "flex-end", gap: 8,
         transition: "border-color 120ms",
       }}>
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
-          style={{ display: "none" }}
-        />
-        <button
-          type="button"
-          onClick={() => fileInput.current?.click()}
-          title="Прикрепить файл"
-          style={{ background: "transparent", border: "none", color: "var(--text-2)", cursor: "pointer", padding: "7px 4px" }}
-        >
-          <i className="fa-solid fa-plus" style={{ fontSize: 18 }} />
-        </button>
+        {!isMobile && (
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            title="Прикрепить файл"
+            style={{ background: "transparent", border: "none", color: "var(--text-2)", cursor: "pointer", padding: "7px 4px" }}
+          >
+            <i className="fa-solid fa-plus" style={{ fontSize: 18 }} />
+          </button>
+        )}
         <textarea
           ref={textareaRef}
           value={value}
           onChange={(e) => { handleChange(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px"; }}
           onKeyDown={(e) => {
             if (mention && ["Enter", "Tab", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) return;
-            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); return; }
+            if (e.key === "Enter" && !e.shiftKey && !isMobile) { e.preventDefault(); handleSend(); return; }
             if (e.key === "ArrowUp" && !value && user?.id && attachments.length === 0) {
               const started = channelId
                 ? startEditLast(channelId, user.id)
@@ -380,27 +463,29 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
           rows={1}
           style={{
             flex: 1, background: "transparent", border: "none", outline: "none",
-            color: "var(--text-0)", fontSize: 14.5, padding: "7px 4px",
-            fontFamily: "inherit", resize: "none", lineHeight: 1.45, minHeight: 36, maxHeight: 160,
+            color: "var(--text-0)", fontSize: isMobile ? 15 : 14.5, padding: "7px 4px",
+            fontFamily: "inherit", resize: "none", lineHeight: 1.4, minHeight: isMobile ? 32 : 36, maxHeight: 160,
           }}
         />
-        <div style={{ position: "relative" }}>
-          <button
-            type="button"
-            title="Эмодзи"
-            onClick={() => setEmojiOpen((v) => !v)}
-            style={{ background: "transparent", border: "none", cursor: "pointer", padding: "7px 4px", color: emojiOpen ? "var(--accent)" : "var(--text-2)" }}
-          >
-            <i className="fa-regular fa-face-smile" style={{ fontSize: 18 }} />
-          </button>
-          {emojiOpen && (
-            <EmojiPicker
-              onPick={(e) => insertEmoji(e)}
-              onClose={() => setEmojiOpen(false)}
-              anchor="bottom-right"
-            />
-          )}
-        </div>
+        {!isMobile && (
+          <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              title="Эмодзи"
+              onClick={() => setEmojiOpen((v) => !v)}
+              style={{ background: "transparent", border: "none", cursor: "pointer", padding: "7px 4px", color: emojiOpen ? "var(--accent)" : "var(--text-2)" }}
+            >
+              <i className="fa-regular fa-face-smile" style={{ fontSize: 18 }} />
+            </button>
+            {emojiOpen && (
+              <EmojiPicker
+                onPick={(e) => insertEmoji(e)}
+                onClose={() => setEmojiOpen(false)}
+                anchor="bottom-right"
+              />
+            )}
+          </div>
+        )}
         <button
           type="button"
           onClick={handleSend}
@@ -425,10 +510,10 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
           <span style={{ color: "var(--accent)" }}>
             длинное сообщение — будет отправлено как <strong>message.txt</strong> ({value.length}/{LARGE_MSG_CHARS})
           </span>
-        ) : (
+        ) : !isMobile ? (
           <span>enter — отправить · shift+enter — перенос · ↑ — редактировать последнее · перетащите файл, чтобы прикрепить</span>
-        )}
-        {attachments.length > 0 && <span>{attachments.length} файл(ов) · макс. 100 МБ</span>}
+        ) : <span />}
+        {attachments.length > 0 && !isMobile && <span>{attachments.length} файл(ов) · макс. 100 МБ</span>}
       </div>
     </div>
   );

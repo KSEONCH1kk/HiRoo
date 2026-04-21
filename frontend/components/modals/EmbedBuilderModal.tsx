@@ -80,7 +80,7 @@ export function EmbedBuilderModal({ webhookId, webhookToken, onClose }: Props) {
       position: "fixed", inset: 0, zIndex: 110, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(3px)",
       display: "flex", alignItems: "center", justifyContent: "center", animation: "fadeIn 160ms ease-out",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div onClick={(e) => e.stopPropagation()} className="modal-panel" style={{
         width: 900, maxHeight: "88vh", display: "flex", flexDirection: "column",
         background: "var(--bg-1)", border: "1px solid var(--line-strong)",
         borderRadius: 14, boxShadow: "0 30px 80px rgba(0,0,0,0.6)", overflow: "hidden",
@@ -93,7 +93,7 @@ export function EmbedBuilderModal({ webhookId, webhookToken, onClose }: Props) {
           </button>
         </div>
 
-        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", minHeight: 0 }}>
+        <div className="modal-two-pane" style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", minHeight: 0 }}>
           {/* Form */}
           <div style={{ overflowY: "auto", padding: "14px 20px", borderRight: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 12 }}>
             <Section title="Сообщение">

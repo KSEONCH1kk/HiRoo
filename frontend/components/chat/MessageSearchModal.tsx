@@ -91,6 +91,7 @@ export function MessageSearchModal({ ctx, onClose }: Props) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="modal-panel"
         style={{
           width: 620, maxHeight: "86vh", display: "flex", flexDirection: "column",
           background: "var(--bg-1)", border: "1px solid var(--line-strong)",

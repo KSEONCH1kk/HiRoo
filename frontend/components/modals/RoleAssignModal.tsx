@@ -50,7 +50,7 @@ export function RoleAssignModal({ serverId, user, onClose }: Props) {
       position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)",
       display: "flex", alignItems: "center", justifyContent: "center", animation: "fadeIn 160ms ease-out",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
+      <div onClick={(e) => e.stopPropagation()} className="modal-panel" style={{
         width: 460, maxHeight: "80vh", display: "flex", flexDirection: "column",
         background: "var(--bg-1)", border: "1px solid var(--line-strong)",
         borderRadius: 14, boxShadow: "0 30px 80px rgba(0,0,0,0.6)", overflow: "hidden",

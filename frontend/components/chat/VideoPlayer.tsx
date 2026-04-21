@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface Props { src: string; filename?: string; }
 
@@ -13,6 +14,7 @@ function fmt(t: number): string {
 }
 
 export function VideoPlayer({ src, filename }: Props) {
+  const isMobile = useIsMobile();
   const vref = useRef<HTMLVideoElement>(null);
   const wref = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
@@ -116,7 +118,9 @@ export function VideoPlayer({ src, filename }: Props) {
       onMouseMove={kickControls}
       onMouseLeave={() => { if (playing) setShowControls(false); }}
       style={{
-        position: "relative", display: "inline-block", maxWidth: 560, width: "100%",
+        position: "relative", display: "block",
+        maxWidth: fs ? "100vw" : (isMobile ? "100%" : 560),
+        width: "100%",
         borderRadius: fs ? 0 : 10, overflow: "hidden",
         border: fs ? "none" : "1px solid var(--line)", background: "#000",
       }}
@@ -132,7 +136,7 @@ export function VideoPlayer({ src, filename }: Props) {
         onPause={() => setPlaying(false)}
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={(e) => setDur((e.target as HTMLVideoElement).duration)}
-        style={{ display: "block", width: "100%", maxHeight: fs ? "100vh" : 360, cursor: "pointer" }}
+        style={{ display: "block", width: "100%", maxHeight: fs ? "100vh" : (isMobile ? "60vh" : 360), cursor: "pointer" }}
       />
 
       {!playing && cur === 0 && (

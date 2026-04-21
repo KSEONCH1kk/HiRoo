@@ -80,6 +80,7 @@ export function ChannelPermissionsModal({ server, channel, onClose }: Props) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="modal-panel"
         style={{
           width: 720, maxHeight: "86vh", display: "flex", flexDirection: "column",
           background: "var(--bg-1)", border: "1px solid var(--line-strong)",
@@ -99,8 +100,8 @@ export function ChannelPermissionsModal({ server, channel, onClose }: Props) {
           </button>
         </div>
 
-        <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-          <div style={{ width: 220, borderRight: "1px solid var(--line)", overflowY: "auto", padding: "8px 6px" }}>
+        <div className="modal-two-pane" style={{ display: "flex", flex: 1, minHeight: 0 }}>
+          <div style={{ width: 220, flexShrink: 0, borderRight: "1px solid var(--line)", overflowY: "auto", padding: "8px 6px" }}>
             <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: 0.5, padding: "6px 10px" }}>
               Роли
             </div>

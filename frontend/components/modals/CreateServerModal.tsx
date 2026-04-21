@@ -28,7 +28,7 @@ export function CreateServerModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", animation: "fadeIn 160ms ease-out" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 460, borderRadius: 16, background: "var(--bg-2)", border: "1px solid var(--line-strong)", padding: 28, boxShadow: "0 30px 80px rgba(0,0,0,0.5)" }}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-panel" style={{ width: 460, borderRadius: 16, background: "var(--bg-2)", border: "1px solid var(--line-strong)", padding: 28, boxShadow: "0 30px 80px rgba(0,0,0,0.5)" }}>
         <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-0)", marginBottom: 4, letterSpacing: -0.4 }}>Создать сервер</div>
         <div style={{ fontSize: 13.5, color: "var(--text-2)", marginBottom: 20 }}>Ваш сервер — это место где вы встречаетесь с друзьями</div>
 

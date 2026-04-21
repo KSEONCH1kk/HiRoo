@@ -6,6 +6,7 @@ import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { useAuthStore } from "@/store/authStore";
 import { authApi } from "@/lib/api";
 import { disconnectSocket } from "@/lib/socket";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 const TABS = [
   { id: "profile", label: "Профиль", icon: "fa-user" },
@@ -16,9 +17,11 @@ const TABS = [
 ];
 
 export default function SettingsPage({ params }: { params: { tab?: string[] } }) {
-  const activeTab = params.tab?.[0] ?? "profile";
   const router = useRouter();
   const { clearAuth } = useAuthStore();
+  const isMobile = useIsMobile();
+  const rawTab = params.tab?.[0];
+  const activeTab = rawTab ?? (isMobile ? "" : "profile");
 
   const handleLogout = async () => {
     try { await authApi.logout(); } catch {}
@@ -27,58 +30,79 @@ export default function SettingsPage({ params }: { params: { tab?: string[] } })
     router.replace("/login");
   };
 
+  const isIndex = !activeTab;
+  const showSidebar = !isMobile || isIndex;
+  const showContent = !isMobile || !isIndex;
+
   return (
     <div style={{ flex: 1, display: "flex", minWidth: 0, background: "var(--bg-1)" }}>
-      {/* Settings sidebar */}
-      <div style={{ width: 220, flexShrink: 0, padding: "20px 8px", borderRight: "1px solid var(--line)", display: "flex", flexDirection: "column" }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", textTransform: "uppercase", letterSpacing: 0.6, padding: "0 10px 8px" }}>
-          Настройки
-        </div>
-        {TABS.map((t) => (
-          <div
-            key={t.id}
-            onClick={() => router.push(`/settings/${t.id}`)}
-            style={{
-              display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer",
-              background: activeTab === t.id ? "var(--bg-active)" : "transparent",
-              color: activeTab === t.id ? "var(--text-0)" : "var(--text-1)",
-              fontSize: 14, fontWeight: activeTab === t.id ? 600 : 400,
-            }}
-            onMouseEnter={(e) => { if (activeTab !== t.id) e.currentTarget.style.background = "var(--bg-hover)"; }}
-            onMouseLeave={(e) => { if (activeTab !== t.id) e.currentTarget.style.background = "transparent"; }}
-          >
-            <i className={`fa-solid ${t.icon}`} style={{ width: 16, textAlign: "center", fontSize: 13 }} />
-            {t.label}
+      {showSidebar && (
+        <div style={{
+          width: isMobile ? "100%" : 220,
+          flexShrink: 0, padding: "20px 8px",
+          borderRight: isMobile ? "none" : "1px solid var(--line)",
+          display: "flex", flexDirection: "column",
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", textTransform: "uppercase", letterSpacing: 0.6, padding: "0 10px 8px" }}>
+            Настройки
           </div>
-        ))}
-        <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--line)" }}>
-          <div
-            onClick={handleLogout}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", color: "var(--danger)", fontSize: 14 }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,80,80,0.08)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-          >
-            <i className="fa-solid fa-arrow-right-from-bracket" style={{ width: 16, textAlign: "center", fontSize: 13 }} />
-            Выйти
+          {TABS.map((t) => (
+            <div
+              key={t.id}
+              onClick={() => router.push(`/settings/${t.id}`)}
+              style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                background: activeTab === t.id ? "var(--bg-active)" : "transparent",
+                color: activeTab === t.id ? "var(--text-0)" : "var(--text-1)",
+                fontSize: 14.5, fontWeight: activeTab === t.id ? 600 : 400,
+              }}
+              onMouseEnter={(e) => { if (activeTab !== t.id) e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={(e) => { if (activeTab !== t.id) e.currentTarget.style.background = "transparent"; }}
+            >
+              <i className={`fa-solid ${t.icon}`} style={{ width: 18, textAlign: "center", fontSize: 14 }} />
+              <span style={{ flex: 1 }}>{t.label}</span>
+              {isMobile && <i className="fa-solid fa-chevron-right" style={{ fontSize: 11, color: "var(--text-3)" }} />}
+            </div>
+          ))}
+          <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--line)" }}>
+            <div
+              onClick={handleLogout}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, cursor: "pointer", color: "var(--danger)", fontSize: 14.5 }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,80,80,0.08)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              <i className="fa-solid fa-arrow-right-from-bracket" style={{ width: 18, textAlign: "center", fontSize: 14 }} />
+              Выйти
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Settings content */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "28px 40px", maxWidth: 680 }}>
-        <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-0)", marginBottom: 24, letterSpacing: -0.4 }}>
-          {TABS.find((t) => t.id === activeTab)?.label ?? "Настройки"}
+      {showContent && (
+        <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "14px 14px 28px" : "28px 40px", maxWidth: 680 }}>
+          {isMobile && (
+            <button
+              onClick={() => router.push("/settings")}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 8, border: "none", background: "transparent", color: "var(--text-2)", cursor: "pointer", fontSize: 13, marginBottom: 8, marginLeft: -6 }}
+            >
+              <i className="fa-solid fa-chevron-left" style={{ fontSize: 12 }} />
+              Назад
+            </button>
+          )}
+          <div style={{ fontSize: isMobile ? 20 : 22, fontWeight: 700, color: "var(--text-0)", marginBottom: isMobile ? 16 : 24, letterSpacing: -0.4 }}>
+            {TABS.find((t) => t.id === activeTab)?.label ?? "Настройки"}
+          </div>
+          {activeTab === "profile" && <ProfileSettings />}
+          {activeTab === "voice" && <VoiceSettings />}
+          {activeTab === "appearance" && <AppearanceSettings />}
+          {activeTab === "privacy" && (
+            <div style={{ color: "var(--text-2)", fontSize: 14 }}>Настройки конфиденциальности — скоро</div>
+          )}
+          {activeTab === "notifications" && (
+            <div style={{ color: "var(--text-2)", fontSize: 14 }}>Настройки уведомлений — скоро</div>
+          )}
         </div>
-        {activeTab === "profile" && <ProfileSettings />}
-        {activeTab === "voice" && <VoiceSettings />}
-        {activeTab === "appearance" && <AppearanceSettings />}
-        {activeTab === "privacy" && (
-          <div style={{ color: "var(--text-2)", fontSize: 14 }}>Настройки конфиденциальности — скоро</div>
-        )}
-        {activeTab === "notifications" && (
-          <div style={{ color: "var(--text-2)", fontSize: 14 }}>Настройки уведомлений — скоро</div>
-        )}
-      </div>
+      )}
     </div>
   );
 }

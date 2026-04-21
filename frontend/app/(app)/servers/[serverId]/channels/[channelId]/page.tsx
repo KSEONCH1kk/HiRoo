@@ -5,6 +5,7 @@ import { useUIStore } from "@/store/uiStore";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageComposer } from "@/components/chat/MessageComposer";
 import { MessageSearchModal } from "@/components/chat/MessageSearchModal";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { messagesApi } from "@/lib/api";
 import { useChatStore } from "@/store/chatStore";
 import { useUnreadStore } from "@/store/unreadStore";
@@ -18,6 +19,7 @@ export default function ChannelPage({ params }: { params: Params }) {
   const { mode, setMode, membersOpen } = useUIStore();
   const { addMessage } = useChatStore();
   const [searchOpen, setSearchOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   const sendMessage = async (content: string, replyToId?: string | null) => {
     const msg = await messagesApi.send(channelId, content, replyToId ?? undefined);
@@ -73,12 +75,14 @@ export default function ChannelPage({ params }: { params: Params }) {
             >
               <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 13 }} />
             </button>
-            <button
-              onClick={() => useUIStore.getState().setMembersOpen(!membersOpen)}
-              style={{ width: 32, height: 32, border: "none", background: membersOpen ? "var(--bg-active)" : "transparent", borderRadius: 6, cursor: "pointer", color: membersOpen ? "var(--text-0)" : "var(--text-2)", display: "flex", alignItems: "center", justifyContent: "center" }}
-            >
-              <i className="fa-solid fa-users" style={{ fontSize: 14 }} />
-            </button>
+            {!isMobile && (
+              <button
+                onClick={() => useUIStore.getState().setMembersOpen(!membersOpen)}
+                style={{ width: 32, height: 32, border: "none", background: membersOpen ? "var(--bg-active)" : "transparent", borderRadius: 6, cursor: "pointer", color: membersOpen ? "var(--text-0)" : "var(--text-2)", display: "flex", alignItems: "center", justifyContent: "center" }}
+              >
+                <i className="fa-solid fa-users" style={{ fontSize: 14 }} />
+              </button>
+            )}
           </div>
         </div>
 

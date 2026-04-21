@@ -10,6 +10,8 @@ import { serversApi, channelsApi } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { ServerRail } from "@/components/layout/ServerRail";
 import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
+import { MembersPanelInner } from "@/components/chat/MembersPanel";
+import { DMSidebar } from "@/components/dm/DMSidebar";
 import { UserTray } from "@/components/layout/UserTray";
 import { IncomingCall } from "@/components/modals/IncomingCall";
 import { ImageViewer } from "@/components/chat/ImageViewer";
@@ -18,6 +20,8 @@ import { ProfilePopout } from "@/components/modals/ProfilePopout";
 import { VoiceCall } from "@/components/voice/VoiceCall";
 import { useCallStore } from "@/store/callStore";
 import { usePaletteStore } from "@/store/paletteStore";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useMobileDrawerStore } from "@/store/mobileDrawerStore";
 
 const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
 
@@ -32,8 +36,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const [isDeafened, setDeafened] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+  const isMobile = useIsMobile();
+  const { leftOpen, rightOpen, closeAll, toggleLeft, toggleRight } = useMobileDrawerStore();
 
   useSocket();
+
+  // Auto-close drawers on navigation (mobile UX)
+  useEffect(() => { if (isMobile) closeAll(); }, [pathname, isMobile]);
 
   // Keep mode in sync with URL so sidebars render correctly
   const lastPathRef = useRef<string | null>(null);
@@ -112,55 +121,130 @@ function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, [activeServerId, channels]);
 
-  return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-0)" }}>
-      {/* Mac-style title bar */}
-      <div style={{ height: 28, flexShrink: 0, background: "var(--bg-0)", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 10px", userSelect: "none" }}>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span style={{ width: 12, height: 12, borderRadius: "50%", background: "#ff5f57" }} />
-          <span style={{ width: 12, height: 12, borderRadius: "50%", background: "#febc2e" }} />
-          <span style={{ width: 12, height: 12, borderRadius: "50%", background: "#28c840" }} />
-        </div>
-        <div style={{ fontSize: 12, color: "var(--text-2)", letterSpacing: 0.3 }}>HiRoo</div>
-        <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono" }}>hiroo · 1.0.0</div>
+  const leftColumn = (
+    <div style={{ display: "flex", flexDirection: "column", background: "var(--bg-0)", width: 72, flexShrink: 0, height: "100%" }}>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <ServerRail
+          servers={servers}
+          activeServerId={activeServerId}
+          activeMode={mode}
+          onPickServer={handlePickServer}
+          onPickMode={handlePickMode}
+        />
       </div>
+      {user && (
+        <UserTray
+          me={user}
+          isMuted={isMuted} setMuted={setMuted}
+          isDeafened={isDeafened} setDeafened={setDeafened}
+          onSettings={() => { setMode("settings"); router.push("/settings"); }}
+          inVoice={inVoice}
+          onHangup={() => endCall()}
+        />
+      )}
+    </div>
+  );
 
-      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        {/* Left column: rail + user tray */}
-        <div style={{ display: "flex", flexDirection: "column", background: "var(--bg-0)", width: 72, flexShrink: 0 }}>
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <ServerRail
-              servers={servers}
-              activeServerId={activeServerId}
-              activeMode={mode}
-              onPickServer={handlePickServer}
-              onPickMode={handlePickMode}
-            />
+  let sidebar: React.ReactNode = null;
+  if (mode === "server" && activeServer && activeChannels.length > 0) {
+    sidebar = (
+      <ChannelSidebar
+        server={activeServer}
+        channels={activeChannels}
+        activeChannelId={activeChannelId}
+        onPickChannel={(id) => { setActiveChannel(id); router.push(`/servers/${activeServerId}/channels/${id}`); }}
+        onOpenVoice={handleOpenVoice}
+      />
+    );
+  } else if (isMobile && mode === "dms") {
+    sidebar = <DMSidebar />;
+  }
+
+  return (
+    <div style={{ height: "100dvh", display: "flex", flexDirection: "column", background: "var(--bg-0)" }}>
+      {/* Top bar */}
+      {!isMobile ? (
+        <div style={{ height: 28, flexShrink: 0, background: "var(--bg-0)", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 10px", userSelect: "none" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span style={{ width: 12, height: 12, borderRadius: "50%", background: "#ff5f57" }} />
+            <span style={{ width: 12, height: 12, borderRadius: "50%", background: "#febc2e" }} />
+            <span style={{ width: 12, height: 12, borderRadius: "50%", background: "#28c840" }} />
           </div>
-          {user && (
-            <UserTray
-              me={user}
-              isMuted={isMuted} setMuted={setMuted}
-              isDeafened={isDeafened} setDeafened={setDeafened}
-              onSettings={() => { setMode("settings"); router.push("/settings"); }}
-              inVoice={inVoice}
-              onHangup={() => endCall()}
-            />
-          )}
+          <div style={{ fontSize: 12, color: "var(--text-2)", letterSpacing: 0.3 }}>HiRoo</div>
+          <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono" }}>hiroo · 1.0.0</div>
         </div>
+      ) : (
+        <div style={{ height: 44, flexShrink: 0, background: "var(--bg-1)", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px" }}>
+          <button onClick={toggleLeft} aria-label="Меню" style={{ width: 36, height: 36, border: "none", background: "transparent", cursor: "pointer", color: "var(--text-0)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <i className="fa-solid fa-bars" style={{ fontSize: 18 }} />
+          </button>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-0)", letterSpacing: 0.2 }}>HiRoo</div>
+          <div style={{ display: "flex", gap: 2 }}>
+            <button onClick={() => setCmdOpen(true)} aria-label="Поиск" style={{ width: 36, height: 36, border: "none", background: "transparent", cursor: "pointer", color: "var(--text-0)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 15 }} />
+            </button>
+            {mode === "server" && activeServer && (
+              <button onClick={toggleRight} aria-label="Участники" style={{ width: 36, height: 36, border: "none", background: "transparent", cursor: "pointer", color: "var(--text-0)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <i className="fa-solid fa-users" style={{ fontSize: 15 }} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
-        {/* Sidebar */}
-        {mode === "server" && activeServer && activeChannels.length > 0 && (
-          <ChannelSidebar
-            server={activeServer}
-            channels={activeChannels}
-            activeChannelId={activeChannelId}
-            onPickChannel={(id) => { setActiveChannel(id); router.push(`/servers/${activeServerId}/channels/${id}`); }}
-            onOpenVoice={handleOpenVoice}
-          />
+      <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
+        {!isMobile && (
+          <>
+            {leftColumn}
+            {sidebar}
+          </>
         )}
 
-        {/* Main content — call overlays on top when maximized, minimized floats */}
+        {isMobile && (
+          <>
+            {/* Backdrop */}
+            {(leftOpen || rightOpen) && (
+              <div
+                onClick={closeAll}
+                style={{
+                  position: "absolute", inset: 0, zIndex: 40,
+                  background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)",
+                }}
+              />
+            )}
+            {/* Left drawer: server rail + channel sidebar */}
+            <div
+              style={{
+                position: "absolute", left: 0, top: 0, bottom: 0, zIndex: 41,
+                display: "flex", background: "var(--bg-0)",
+                maxWidth: "88vw",
+                transform: leftOpen ? "translateX(0)" : "translateX(-100%)",
+                transition: "transform 220ms cubic-bezier(.3,.8,.3,1)",
+                boxShadow: leftOpen ? "6px 0 24px rgba(0,0,0,0.4)" : "none",
+              }}
+            >
+              {leftColumn}
+              {sidebar}
+            </div>
+            {/* Right drawer: members (server mode only) */}
+            {mode === "server" && activeServer && (
+              <div
+                style={{
+                  position: "absolute", right: 0, top: 0, bottom: 0, zIndex: 41,
+                  background: "var(--bg-1)", width: 240, maxWidth: "88vw",
+                  transform: rightOpen ? "translateX(0)" : "translateX(100%)",
+                  transition: "transform 220ms cubic-bezier(.3,.8,.3,1)",
+                  boxShadow: rightOpen ? "-6px 0 24px rgba(0,0,0,0.4)" : "none",
+                  overflow: "hidden",
+                }}
+              >
+                <MembersPanelInner serverId={activeServer.id} />
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Main content */}
         <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0, position: "relative" }}>
           {children}
           <VoiceCall />

@@ -9,12 +9,22 @@ import { useUIStore } from "@/store/uiStore";
 import { useAuthStore } from "@/store/authStore";
 import { useServerRoles } from "@/hooks/useServerRoles";
 import { useServerPermissions } from "@/hooks/useServerPermissions";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { serversApi, dmsApi } from "@/lib/api";
 import type { ServerMember, UserPublic } from "@/types";
 
 interface Props { serverId: string; }
 
 export function MembersPanel({ serverId }: Props) {
+  // Rendered always but hidden via CSS class on mobile — avoids hydration mismatch
+  return (
+    <div className="desktop-only" style={{ display: "flex", minHeight: 0 }}>
+      <MembersPanelInner serverId={serverId} />
+    </div>
+  );
+}
+
+export function MembersPanelInner({ serverId }: Props) {
   const { setProfileUser } = useUIStore();
   const { user: me } = useAuthStore();
   const { members, rolesById, getHighestRole, getColor, getLabel } = useServerRoles(serverId);

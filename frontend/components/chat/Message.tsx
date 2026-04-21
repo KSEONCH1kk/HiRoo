@@ -7,6 +7,7 @@ import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
 import { EmojiPicker } from "@/components/ui/EmojiPicker";
 import { useUIStore } from "@/store/uiStore";
 import { useChatStore } from "@/store/chatStore";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { Message as MessageType } from "@/types";
 
 interface Props {
@@ -30,6 +31,11 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
   const [emojiOpen, setEmojiOpen] = useState(false);
   const { editingMessageId, startEdit, cancelEdit, startReply } = useChatStore();
   const editing = editingMessageId === m.id;
+  const isMobile = useIsMobile();
+  const AVATAR_SIZE = isMobile ? 32 : 40;
+  const GAP = isMobile ? 8 : 12;
+  const SIDE_PAD = isMobile ? 10 : 16;
+  const GROUPED_INDENT = SIDE_PAD + AVATAR_SIZE + GAP;
 
   const beginReply = () => {
     if (!m.author) return;
@@ -77,7 +83,7 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
 
   if (m.is_deleted) {
     return (
-      <div style={{ padding: "2px 16px 2px 74px", fontSize: 13.5, color: "var(--text-3)", fontStyle: "italic" }}>
+      <div style={{ padding: `2px ${SIDE_PAD}px 2px ${GROUPED_INDENT}px`, fontSize: 13.5, color: "var(--text-3)", fontStyle: "italic" }}>
         [сообщение удалено]
       </div>
     );
@@ -86,7 +92,13 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
   return (
     <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       data-msgid={m.id}
-      style={{ padding: isGroup ? "8px 16px 2px" : "0 16px 2px 74px", position: "relative", background: hover ? "var(--bg-hover)" : "transparent" }}>
+      style={{
+        padding: isGroup
+          ? `8px ${SIDE_PAD}px 2px ${SIDE_PAD}px`
+          : `0 ${SIDE_PAD}px 2px ${GROUPED_INDENT}px`,
+        position: "relative",
+        background: hover ? "var(--bg-hover)" : "transparent",
+      }}>
 
       {m.reply_to && (
         <div
@@ -146,14 +158,14 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 12 }}>
+      <div style={{ display: "flex", gap: GAP }}>
         {isGroup && (
           <div
             onClick={isWebhook ? undefined : openProfile}
             onContextMenu={isWebhook ? undefined : (e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}
-            style={{ cursor: isWebhook ? "default" : "pointer" }}
+            style={{ cursor: isWebhook ? "default" : "pointer", flexShrink: 0 }}
           >
-            <Avatar name={isWebhook ? webhookDisplayName : (m.author?.username ?? "?")} size={40} shape="circle" avatarUrl={isWebhook ? webhookAvatar : (m.author?.avatar_url ?? null)} />
+            <Avatar name={isWebhook ? webhookDisplayName : (m.author?.username ?? "?")} size={AVATAR_SIZE} shape="circle" avatarUrl={isWebhook ? webhookAvatar : (m.author?.avatar_url ?? null)} />
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
