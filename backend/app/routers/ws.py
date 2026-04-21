@@ -567,6 +567,26 @@ async def websocket_endpoint(
                         },
                     })
 
+            elif event == "voice_mls_bundle":
+                room_id = payload.get("room_id")
+                bundle = payload.get("bundle")
+                if not room_id or not bundle:
+                    continue
+                if manager.voice_room_of(str(user.id)) != room_id:
+                    continue  # sender must be in that room
+                peers = manager.voice_room_members(room_id)
+                for peer_id in peers:
+                    if peer_id == str(user.id):
+                        continue
+                    await manager.send_to_user(peer_id, {
+                        "event": "voice_mls_bundle",
+                        "data": {
+                            "room_id": room_id,
+                            "from_user_id": str(user.id),
+                            "bundle": bundle,
+                        },
+                    })
+
             elif event == "voice_ring":
                 target_id = payload.get("target_user_id")
                 room_id = payload.get("room_id")

@@ -50,6 +50,7 @@ class UserResponse(BaseModel):
     is_verified: bool
     created_at: datetime
     public_key: str | None = None
+    signing_public_key: str | None = None
 
 
 class UserPublic(BaseModel):
@@ -62,6 +63,7 @@ class UserPublic(BaseModel):
     status: str
     custom_status: str | None
     public_key: str | None = None
+    signing_public_key: str | None = None
 
 
 class TokenResponse(BaseModel):

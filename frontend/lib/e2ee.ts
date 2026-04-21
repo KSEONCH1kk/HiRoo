@@ -3,6 +3,8 @@ import _sodium from "libsodium-wrappers";
 
 const LS_SK = "hiroo-e2ee-sk";
 const LS_PK = "hiroo-e2ee-pk";
+const LS_SIGN_SK = "hiroo-e2ee-sign-sk";
+const LS_SIGN_PK = "hiroo-e2ee-sign-pk";
 
 let ready = false;
 let sodium: typeof _sodium;
@@ -16,20 +18,49 @@ export async function initSodium(): Promise<typeof _sodium> {
 }
 
 export interface KeyPair { publicKey: string; secretKey: string; }
+export interface IdentityKeys { box: KeyPair; sign: KeyPair; }
 
-/** Load existing keypair from localStorage or generate+persist a new one. */
-export async function ensureKeys(): Promise<KeyPair> {
+/** Load existing keypairs from localStorage or generate+persist new ones. */
+export async function ensureKeys(): Promise<IdentityKeys> {
   const s = await initSodium();
   if (typeof localStorage === "undefined") throw new Error("localStorage unavailable");
-  const existingSk = localStorage.getItem(LS_SK);
-  const existingPk = localStorage.getItem(LS_PK);
-  if (existingSk && existingPk) return { publicKey: existingPk, secretKey: existingSk };
-  const kp = s.crypto_box_keypair();
-  const publicKey = s.to_base64(kp.publicKey, s.base64_variants.ORIGINAL);
-  const secretKey = s.to_base64(kp.privateKey, s.base64_variants.ORIGINAL);
-  localStorage.setItem(LS_SK, secretKey);
-  localStorage.setItem(LS_PK, publicKey);
-  return { publicKey, secretKey };
+
+  let boxSk = localStorage.getItem(LS_SK);
+  let boxPk = localStorage.getItem(LS_PK);
+  if (!boxSk || !boxPk) {
+    const kp = s.crypto_box_keypair();
+    boxPk = s.to_base64(kp.publicKey, s.base64_variants.ORIGINAL);
+    boxSk = s.to_base64(kp.privateKey, s.base64_variants.ORIGINAL);
+    localStorage.setItem(LS_SK, boxSk);
+    localStorage.setItem(LS_PK, boxPk);
+  }
+
+  let signSk = localStorage.getItem(LS_SIGN_SK);
+  let signPk = localStorage.getItem(LS_SIGN_PK);
+  if (!signSk || !signPk) {
+    const kp = s.crypto_sign_keypair();
+    signPk = s.to_base64(kp.publicKey, s.base64_variants.ORIGINAL);
+    signSk = s.to_base64(kp.privateKey, s.base64_variants.ORIGINAL);
+    localStorage.setItem(LS_SIGN_SK, signSk);
+    localStorage.setItem(LS_SIGN_PK, signPk);
+  }
+
+  return {
+    box: { publicKey: boxPk, secretKey: boxSk },
+    sign: { publicKey: signPk, secretKey: signSk },
+  };
+}
+
+export function getMySigningPublicKey(): string | null {
+  if (typeof localStorage === "undefined") return null;
+  return localStorage.getItem(LS_SIGN_PK);
+}
+
+function getMySigningSecretKeyBytes(): Uint8Array | null {
+  if (typeof localStorage === "undefined") return null;
+  const b = localStorage.getItem(LS_SIGN_SK);
+  if (!b) return null;
+  return sodium.from_base64(b, sodium.base64_variants.ORIGINAL);
 }
 
 export function getMyPublicKey(): string | null {
@@ -154,6 +185,58 @@ export async function deriveGroupKey(dmId: string, publicKeysSorted: string[]): 
   const s = await initSodium();
   const payload = dmId + "|" + publicKeysSorted.join("|");
   return s.crypto_generichash(32, s.from_string(payload));
+}
+
+// ── MLS-lite: ephemeral keys + signed bundle exchange ─────────
+
+export interface EphemeralPair { publicKey: Uint8Array; secretKey: Uint8Array; }
+
+export async function createEphemeralKeypair(): Promise<EphemeralPair> {
+  const s = await initSodium();
+  const kp = s.crypto_box_keypair();
+  return { publicKey: kp.publicKey, secretKey: kp.privateKey };
+}
+
+export interface SignedBundle {
+  roomId: string;
+  userId: string;
+  epoch: number;
+  ephPk: string;         // base64
+  ts: number;
+  sig: string;           // base64 Ed25519 signature over canonical JSON of the above
+}
+
+function canonicalize(b: Omit<SignedBundle, "sig">): string {
+  return JSON.stringify({
+    roomId: b.roomId, userId: b.userId, epoch: b.epoch, ephPk: b.ephPk, ts: b.ts,
+  });
+}
+
+export async function signBundle(unsigned: Omit<SignedBundle, "sig">): Promise<SignedBundle> {
+  const s = await initSodium();
+  const sk = getMySigningSecretKeyBytes();
+  if (!sk) throw new Error("no-signing-key");
+  const sig = s.crypto_sign_detached(s.from_string(canonicalize(unsigned)), sk);
+  return { ...unsigned, sig: s.to_base64(sig, s.base64_variants.ORIGINAL) };
+}
+
+export async function verifyBundle(b: SignedBundle, signerPublicKeyB64: string): Promise<boolean> {
+  const s = await initSodium();
+  try {
+    const pk = b64d(signerPublicKeyB64);
+    const sig = b64d(b.sig);
+    return s.crypto_sign_verify_detached(sig, s.from_string(canonicalize(b)), pk);
+  } catch {
+    return false;
+  }
+}
+
+/** Per-epoch key: combine sorted ephemeral pubkeys (hex-normalized) with roomId + epoch. */
+export async function deriveEpochKey(roomId: string, epoch: number, ephPksB64: string[]): Promise<Uint8Array> {
+  const s = await initSodium();
+  const sorted = [...ephPksB64].sort();
+  const blob = s.from_string(`${roomId}|${epoch}|${sorted.join("|")}`);
+  return s.crypto_generichash(32, blob);
 }
 
 /** Human-readable safety code (like Signal's safety number): hash of the key → 6 groups of 5 digits. */

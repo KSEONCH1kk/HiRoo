@@ -86,8 +86,8 @@ export const usersApi = {
     form.append("file", file);
     return api.post<User>("/api/users/me/avatar", form).then((r) => r.data);
   },
-  setPublicKey: (public_key: string) =>
-    api.post<User>("/api/users/me/key", { public_key }).then((r) => r.data),
+  setPublicKey: (public_key: string, signing_public_key?: string) =>
+    api.post<User>("/api/users/me/key", { public_key, signing_public_key }).then((r) => r.data),
 };
 
 // ── Servers ──────────────────────────────────────────────────

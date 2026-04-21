@@ -89,6 +89,7 @@ async def upload_avatar(
 
 class PublicKeyUpdate(BaseModel):
     public_key: str = Field(..., min_length=8, max_length=128)
+    signing_public_key: str | None = Field(None, min_length=8, max_length=128)
 
 
 @router.post("/me/key", response_model=UserResponse)
@@ -98,6 +99,8 @@ async def set_my_public_key(
     current_user: User = Depends(get_current_active_user),
 ):
     current_user.public_key = body.public_key
+    if body.signing_public_key is not None:
+        current_user.signing_public_key = body.signing_public_key
     await db.flush()
     await db.refresh(current_user)
     return current_user

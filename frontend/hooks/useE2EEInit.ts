@@ -15,9 +15,9 @@ export function useE2EEInit() {
     try { localStorage.setItem("hiroo-auth-id", user.id); } catch {}
     (async () => {
       try {
-        const { publicKey } = await ensureKeys();
-        if (user.public_key !== publicKey) {
-          const updated = await usersApi.setPublicKey(publicKey);
+        const keys = await ensureKeys();
+        if (user.public_key !== keys.box.publicKey || user.signing_public_key !== keys.sign.publicKey) {
+          const updated = await usersApi.setPublicKey(keys.box.publicKey, keys.sign.publicKey);
           updateUser(updated);
         }
       } catch (e) {

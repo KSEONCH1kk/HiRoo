@@ -64,6 +64,7 @@ MIGRATIONS = [
     )
     """,
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS public_key VARCHAR(128)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS signing_public_key VARCHAR(128)",
 ]
 
 
