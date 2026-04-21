@@ -1,10 +1,25 @@
 import { create } from "zustand";
 import type { Message, DMMessageType } from "@/types";
 
+export interface TypingUser {
+  userId: string;
+  username: string;
+  displayName?: string | null;
+}
+
+export interface ReplyTarget {
+  messageId: string;
+  authorId: string | null;
+  username: string;
+  displayName?: string | null;
+  contentPreview: string;
+}
+
 interface ChatState {
   messages: Record<string, Message[]>; // channelId -> messages
   dmMessages: Record<string, DMMessageType[]>; // dmId -> messages
-  typing: Record<string, string[]>; // channelId -> usernames
+  typing: Record<string, TypingUser[]>; // roomKey (channelId | dmId) -> users
+  replyingTo: Record<string, ReplyTarget | null>; // roomKey -> target
   editingMessageId: string | null;
   startEditLast: (channelId: string, userId: string) => boolean;
   startEditLastDM: (dmId: string, userId: string) => boolean;
@@ -28,14 +43,23 @@ interface ChatState {
   addReaction: (channelId: string, messageId: string, emoji: string, userId: string, currentUserId: string) => void;
   removeReaction: (channelId: string, messageId: string, emoji: string, userId: string, currentUserId: string) => void;
 
-  setTyping: (channelId: string, userId: string, isTyping: boolean) => void;
+  setTyping: (roomKey: string, user: TypingUser, isTyping: boolean) => void;
+
+  startReply: (roomKey: string, target: ReplyTarget) => void;
+  cancelReply: (roomKey: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: {},
   dmMessages: {},
   typing: {},
+  replyingTo: {},
   editingMessageId: null,
+
+  startReply: (roomKey, target) =>
+    set((s) => ({ replyingTo: { ...s.replyingTo, [roomKey]: target } })),
+  cancelReply: (roomKey) =>
+    set((s) => ({ replyingTo: { ...s.replyingTo, [roomKey]: null } })),
 
   startEditLast: (channelId, userId) => {
     const list = get().messages[channelId] ?? [];
@@ -205,13 +229,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
     })),
 
-  setTyping: (channelId, userId, isTyping) =>
-    set((s) => ({
-      typing: {
-        ...s.typing,
-        [channelId]: isTyping
-          ? [...new Set([...(s.typing[channelId] ?? []), userId])]
-          : (s.typing[channelId] ?? []).filter((id) => id !== userId),
-      },
-    })),
+  setTyping: (roomKey, user, isTyping) =>
+    set((s) => {
+      const cur = s.typing[roomKey] ?? [];
+      if (isTyping) {
+        const rest = cur.filter((u) => u.userId !== user.userId);
+        return { typing: { ...s.typing, [roomKey]: [...rest, user] } };
+      }
+      return { typing: { ...s.typing, [roomKey]: cur.filter((u) => u.userId !== user.userId) } };
+    }),
 }));

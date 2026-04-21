@@ -8,6 +8,7 @@ import { voiceApi } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/store/authStore";
 import { useVoicePresenceStore } from "@/store/voicePresenceStore";
+import { useCallStore } from "@/store/callStore";
 
 export interface VoiceParticipant {
   identity: string;
@@ -55,12 +56,28 @@ export function useVoice() {
   };
 
   const joinRoom = useCallback(async (roomName: string, opts?: { video?: boolean }) => {
-    if (joined && currentRoom.current === roomName) return;
+    if (currentRoom.current === roomName && roomRef.current) return;
     setError(null);
 
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setError("Медиа-устройства недоступны — требуется HTTPS");
       return;
+    }
+
+    // Cleanly leave the previous room so we stop hearing old peers
+    // and so others see us leave it.
+    if (roomRef.current) {
+      const leaving = currentRoom.current;
+      try { await roomRef.current.disconnect(); } catch {}
+      try { getSocket().emit("voice_leave", {}); } catch {}
+      const myId = useAuthStore.getState().user?.id;
+      if (myId && leaving) useVoicePresenceStore.getState().leave(leaving, myId);
+      roomRef.current = null;
+      currentRoom.current = null;
+      setJoined(false);
+      setMe(null);
+      setRemotes([]);
+      setIsMuted(false); setIsDeafened(false); setIsVideo(false); setIsSharing(false);
     }
 
     let token: string, url: string;
@@ -97,15 +114,20 @@ export function useVoice() {
 
     try {
       await room.connect(url, token);
-      await room.localParticipant.setMicrophoneEnabled(true);
-      if (opts?.video) {
-        await room.localParticipant.setCameraEnabled(true);
-        setIsVideo(true);
-      }
     } catch (e: any) {
       setError(e?.message ?? "Не удалось подключиться");
       try { await room.disconnect(); } catch {}
       return;
+    }
+    // Media publishing may fail if token doesn't allow it (no SPEAK_VOICE/VIDEO).
+    // Don't abort — remain connected in listen-only mode.
+    try { await room.localParticipant.setMicrophoneEnabled(true); }
+    catch { setIsMuted(true); }
+    if (opts?.video) {
+      try {
+        await room.localParticipant.setCameraEnabled(true);
+        setIsVideo(true);
+      } catch {}
     }
 
     roomRef.current = room;
@@ -139,14 +161,27 @@ export function useVoice() {
     const r = roomRef.current;
     if (!r) return;
     const next = !isMuted;
-    await r.localParticipant.setMicrophoneEnabled(!next);
-    setIsMuted(next);
+    if (!next && useCallStore.getState().serverMuted) {
+      setError("Вы заглушены администратором");
+      return;
+    }
+    try {
+      await r.localParticipant.setMicrophoneEnabled(!next);
+      setIsMuted(next);
+    } catch (e: any) {
+      setError("Нет права говорить в этом канале");
+      setIsMuted(true);
+    }
   }, [isMuted]);
 
   const toggleDeafen = useCallback(async () => {
     const r = roomRef.current;
     if (!r) return;
     const next = !isDeafened;
+    if (!next && useCallStore.getState().serverDeafened) {
+      setError("Звук отключён администратором");
+      return;
+    }
     setIsDeafened(next);
     // Mute all remote audio tracks locally
     r.remoteParticipants.forEach((p) => {
@@ -158,7 +193,7 @@ export function useVoice() {
       });
     });
     if (next && !isMuted) {
-      await r.localParticipant.setMicrophoneEnabled(false);
+      try { await r.localParticipant.setMicrophoneEnabled(false); } catch {}
       setIsMuted(true);
     }
   }, [isDeafened, isMuted]);

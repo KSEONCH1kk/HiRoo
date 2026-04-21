@@ -59,17 +59,47 @@ export interface Reaction {
   me: boolean;
 }
 
+export interface ReplyPreview {
+  id: string;
+  author: UserPublic | null;
+  content: string;
+  is_deleted: boolean;
+}
+
+export interface EmbedField { name: string; value: string; inline?: boolean; }
+export interface EmbedAuthor { name: string; url?: string | null; icon_url?: string | null; }
+export interface EmbedFooter { text: string; icon_url?: string | null; }
+export interface EmbedImage { url: string; }
+
+export interface Embed {
+  title?: string | null;
+  description?: string | null;
+  url?: string | null;
+  color?: number | null;
+  timestamp?: string | null;
+  author?: EmbedAuthor | null;
+  footer?: EmbedFooter | null;
+  image?: EmbedImage | null;
+  thumbnail?: EmbedImage | null;
+  fields?: EmbedField[] | null;
+}
+
 export interface Message {
   id: string;
   channel_id: string;
   author_id: string | null;
   content: string;
   reply_to_id: string | null;
+  reply_to: ReplyPreview | null;
   edited_at: string | null;
   is_deleted: boolean;
   created_at: string;
   author: UserPublic | null;
   reactions: Reaction[];
+  webhook_id: string | null;
+  webhook_name: string | null;
+  webhook_avatar_url: string | null;
+  embeds: Embed[] | null;
 }
 
 export interface DMParticipant {
@@ -82,6 +112,8 @@ export interface DirectMessage {
   id: string;
   is_group: boolean;
   name: string | null;
+  icon_url: string | null;
+  owner_id: string | null;
   created_at: string;
   updated_at: string;
   participants: DMParticipant[];
@@ -92,7 +124,10 @@ export interface DMMessageType {
   id: string;
   dm_id: string;
   author_id: string | null;
+  type: "text" | "call_log";
   content: string;
+  reply_to_id: string | null;
+  reply_to: ReplyPreview | null;
   edited_at: string | null;
   is_deleted: boolean;
   created_at: string;

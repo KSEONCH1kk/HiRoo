@@ -9,7 +9,10 @@ import { useVoiceStore } from "@/store/voiceStore";
 import { useServerStore } from "@/store/serverStore";
 import { useUnreadStore } from "@/store/unreadStore";
 import { useVoicePresenceStore } from "@/store/voicePresenceStore";
-import type { Message, DMMessageType, VoiceState } from "@/types";
+import { useVoiceAdminStore } from "@/store/voiceAdminStore";
+import { useCallStore } from "@/store/callStore";
+import { playNotify } from "@/lib/sounds";
+import type { Message, DMMessageType, VoiceState, DirectMessage, Channel } from "@/types";
 
 export function useSocket() {
   const { user } = useAuthStore();
@@ -48,6 +51,7 @@ export function useSocket() {
       }
       if (serverId && msg.channel_id !== activeChannelId) {
         useUnreadStore.getState().addServerMention(serverId);
+        playNotify();
       }
     };
     const onMessageUpdate = (msg: Message) => updateMessage(msg);
@@ -56,11 +60,30 @@ export function useSocket() {
     const onDMMessage = (msg: DMMessageType) => {
       addDMMessage(msg);
       qc.invalidateQueries({ queryKey: ["dms"] });
-      // Every DM message increments unread unless currently viewing it
+      if (msg.type === "call_log") return;
       const path = typeof window !== "undefined" ? window.location.pathname : "";
       const isActive = path === `/dms/${msg.dm_id}`;
-      if (!isActive && msg.author?.id !== user?.id) {
+      const me = useAuthStore.getState().user;
+      if (isActive || !me || msg.author?.id === me.id) return;
+
+      const dms = (qc.getQueryData(["dms"]) as DirectMessage[] | undefined) ?? [];
+      const dm = dms.find((d) => d.id === msg.dm_id);
+      const isGroup = dm?.is_group ?? false;
+
+      if (!isGroup) {
         useUnreadStore.getState().addDmUnread(msg.dm_id);
+        playNotify();
+        return;
+      }
+
+      const content = msg.content || "";
+      const escaped = me.username.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const mentioned =
+        new RegExp(`(^|[^\\w])@${escaped}\\b`, "i").test(content) ||
+        /(^|[^\w])@(everyone|all)\b/i.test(content);
+      if (mentioned) {
+        useUnreadStore.getState().addDmUnread(msg.dm_id);
+        playNotify();
       }
     };
     const onDMMessageUpdate = (msg: DMMessageType) => updateDMMessage(msg);
@@ -71,8 +94,26 @@ export function useSocket() {
     const onDMReactionRemove = ({ dm_id, message_id, user_id, emoji }: any) => {
       if (user?.id) removeDMReaction(dm_id, message_id, emoji, user_id, user.id);
     };
-    const onTyping = ({ user_id, channel_id, is_typing }: any) =>
-      setTyping(channel_id, user_id, is_typing);
+    const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const onTyping = ({ user_id, username, display_name, channel_id, dm_id, is_typing }: any) => {
+      const roomKey = dm_id ?? channel_id;
+      if (!roomKey || !user_id) return;
+      const me = useAuthStore.getState().user;
+      if (me?.id === user_id) return;
+      const entry = { userId: user_id, username: username ?? "", displayName: display_name ?? null };
+      const k = `${roomKey}:${user_id}`;
+      const prev = typingTimers.get(k);
+      if (prev) { clearTimeout(prev); typingTimers.delete(k); }
+      if (is_typing) {
+        setTyping(roomKey, entry, true);
+        typingTimers.set(k, setTimeout(() => {
+          setTyping(roomKey, entry, false);
+          typingTimers.delete(k);
+        }, 6000));
+      } else {
+        setTyping(roomKey, entry, false);
+      }
+    };
     const onReactionAdd = ({ message_id, user_id, emoji, channel_id }: any) => {
       if (user?.id && channel_id) addReaction(channel_id, message_id, emoji, user_id, user.id);
     };
@@ -80,11 +121,16 @@ export function useSocket() {
       if (user?.id && channel_id) removeReaction(channel_id, message_id, emoji, user_id, user.id);
     };
     const onVoiceState = (vs: VoiceState) => updateRemoteState(vs);
-    const onVoiceSnapshot = ({ rooms }: { rooms: Record<string, string[]> }) => {
+    const onVoiceSnapshot = ({ rooms, muted_users, deafened_users }: { rooms: Record<string, string[]>; muted_users?: string[]; deafened_users?: string[] }) => {
       const store = useVoicePresenceStore.getState();
       for (const [roomId, users] of Object.entries(rooms)) {
         store.setRoom(roomId, users);
       }
+      useVoiceAdminStore.getState().setBulk(muted_users ?? [], deafened_users ?? []);
+    };
+    const onVoiceUserState = ({ user_id, server_muted, server_deafened }: { user_id: string; server_muted: boolean; server_deafened: boolean }) => {
+      useVoiceAdminStore.getState().setMuted(user_id, !!server_muted);
+      useVoiceAdminStore.getState().setDeafened(user_id, !!server_deafened);
     };
     const onVoiceRoomJoined = ({ room_id, peers }: { room_id: string; peers: string[] }) => {
       if (!user?.id) return;
@@ -108,7 +154,84 @@ export function useSocket() {
       });
     };
     const onFriendRequest = () => qc.invalidateQueries({ queryKey: ["friends-pending"] });
-    const onReady = () => {};
+    const onChannelCreate = (ch: Channel) => {
+      useServerStore.getState().addChannel(ch);
+    };
+    const onChannelUpdate = (ch: Channel) => {
+      useServerStore.getState().updateChannel(ch);
+    };
+    const onChannelDelete = ({ server_id, channel_id }: { server_id: string; channel_id: string }) => {
+      useServerStore.getState().removeChannel(server_id, channel_id);
+    };
+    const onChannelReorder = ({ server_id, ordered_ids }: { server_id: string; ordered_ids: string[] }) => {
+      useServerStore.getState().reorderChannels(server_id, ordered_ids);
+    };
+    const onChannelPermissionsUpdate = () => {
+      qc.invalidateQueries({ queryKey: ["my-permissions"] });
+    };
+    const onVoiceForceDisconnect = async () => {
+      const { active, controls, endCall } = useCallStore.getState();
+      if (!active) return;
+      if (controls?.leave) {
+        try { await controls.leave(); return; } catch {}
+      }
+      try { getSocket().emit("voice_leave", {}); } catch {}
+      endCall();
+    };
+    const onVoiceForceMute = () => {
+      useCallStore.getState().setServerMuted(true);
+      const c = useCallStore.getState().controls;
+      if (c && !c.isMuted) c.toggleMute();
+    };
+    const onVoiceForceUnmute = () => {
+      useCallStore.getState().setServerMuted(false);
+    };
+    const onVoiceForceDeafen = () => {
+      useCallStore.getState().setServerDeafened(true);
+      const c = useCallStore.getState().controls;
+      if (c && !c.isDeafened) c.toggleDeafen();
+    };
+    const onVoiceForceUndeafen = () => {
+      useCallStore.getState().setServerDeafened(false);
+    };
+    const onVoiceForceMove = ({ to_room_id }: { to_room_id: string }) => {
+      if (!to_room_id) return;
+      let title = "Голосовой канал";
+      if (to_room_id.startsWith("channel:")) {
+        const chId = to_room_id.slice("channel:".length);
+        const { channels } = useServerStore.getState();
+        for (const list of Object.values(channels)) {
+          const match = (list as any[]).find((c) => c.id === chId);
+          if (match) { title = `#${match.name}`; break; }
+        }
+      } else if (to_room_id.startsWith("dm:")) {
+        title = "Звонок";
+      }
+      useCallStore.getState().startCall({ roomId: to_room_id, title });
+    };
+    const onDMUpdate = (dm: any) => {
+      if (!dm?.id) return;
+      qc.setQueryData(["dm", dm.id], dm);
+      qc.invalidateQueries({ queryKey: ["dms"] });
+    };
+    const onDMMemberLeft = ({ dm_id, user_id, kicked }: { dm_id: string; user_id: string; kicked?: boolean }) => {
+      const me = useAuthStore.getState().user;
+      if (me?.id === user_id) {
+        qc.invalidateQueries({ queryKey: ["dms"] });
+        qc.removeQueries({ queryKey: ["dm", dm_id] });
+        if (typeof window !== "undefined" && window.location.pathname === `/dms/${dm_id}`) {
+          window.location.href = "/dms";
+        }
+        return;
+      }
+      qc.invalidateQueries({ queryKey: ["dm", dm_id] });
+      qc.invalidateQueries({ queryKey: ["dms"] });
+    };
+    const onReady = (data: any) => {
+      if (!data) return;
+      useCallStore.getState().setServerMuted(!!data.server_muted);
+      useCallStore.getState().setServerDeafened(!!data.server_deafened);
+    };
 
     s.on("message_create", onMessageCreate);
     s.on("message_update", onMessageUpdate);
@@ -124,10 +247,25 @@ export function useSocket() {
     s.on("voice_state_update", onVoiceState);
     s.on("presence_update", onPresence);
     s.on("voice_snapshot", onVoiceSnapshot);
+    s.on("voice_user_state", onVoiceUserState);
     s.on("voice_room_joined", onVoiceRoomJoined);
     s.on("voice_peer_joined", onVoicePeerJoined);
     s.on("voice_peer_left", onVoicePeerLeft);
     s.on("friend_request", onFriendRequest);
+    s.on("channel_create", onChannelCreate);
+    s.on("channel_update", onChannelUpdate);
+    s.on("channel_delete", onChannelDelete);
+    s.on("channel_reorder", onChannelReorder);
+    s.on("channel_permissions_update", onChannelPermissionsUpdate);
+    s.on("channel_permissions_delete", onChannelPermissionsUpdate);
+    s.on("voice_force_move", onVoiceForceMove);
+    s.on("voice_force_disconnect", onVoiceForceDisconnect);
+    s.on("voice_force_mute", onVoiceForceMute);
+    s.on("voice_force_unmute", onVoiceForceUnmute);
+    s.on("voice_force_deafen", onVoiceForceDeafen);
+    s.on("voice_force_undeafen", onVoiceForceUndeafen);
+    s.on("dm_update", onDMUpdate);
+    s.on("dm_member_left", onDMMemberLeft);
     s.on("ready", onReady);
 
     return () => {
@@ -145,10 +283,25 @@ export function useSocket() {
       s.off("voice_state_update", onVoiceState);
       s.off("presence_update", onPresence);
       s.off("voice_snapshot", onVoiceSnapshot);
+      s.off("voice_user_state", onVoiceUserState);
       s.off("voice_room_joined", onVoiceRoomJoined);
       s.off("voice_peer_joined", onVoicePeerJoined);
       s.off("voice_peer_left", onVoicePeerLeft);
       s.off("friend_request", onFriendRequest);
+      s.off("channel_create", onChannelCreate);
+      s.off("channel_update", onChannelUpdate);
+      s.off("channel_delete", onChannelDelete);
+      s.off("channel_reorder", onChannelReorder);
+      s.off("channel_permissions_update", onChannelPermissionsUpdate);
+      s.off("channel_permissions_delete", onChannelPermissionsUpdate);
+      s.off("voice_force_move", onVoiceForceMove);
+      s.off("voice_force_disconnect", onVoiceForceDisconnect);
+      s.off("voice_force_mute", onVoiceForceMute);
+      s.off("voice_force_unmute", onVoiceForceUnmute);
+      s.off("voice_force_deafen", onVoiceForceDeafen);
+      s.off("voice_force_undeafen", onVoiceForceUndeafen);
+      s.off("dm_update", onDMUpdate);
+      s.off("dm_member_left", onDMMemberLeft);
       s.off("ready", onReady);
       bound.current = false;
     };

@@ -27,8 +27,30 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
   const [editValue, setEditValue] = useState(m.content);
   const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
-  const { editingMessageId, startEdit, cancelEdit } = useChatStore();
+  const { editingMessageId, startEdit, cancelEdit, startReply } = useChatStore();
   const editing = editingMessageId === m.id;
+
+  const beginReply = () => {
+    if (!m.author) return;
+    startReply(m.channel_id, {
+      messageId: m.id,
+      authorId: m.author.id,
+      username: m.author.username,
+      displayName: m.author.display_name,
+      contentPreview: (m.content || "").slice(0, 120),
+    });
+  };
+
+  const scrollToOriginal = () => {
+    if (!m.reply_to?.id) return;
+    const el = document.querySelector(`[data-msgid="${m.reply_to.id}"]`) as HTMLElement | null;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.style.transition = "background 200ms";
+    const prev = el.style.background;
+    el.style.background = "var(--bg-active)";
+    setTimeout(() => { el.style.background = prev; }, 900);
+  };
 
   useEffect(() => {
     if (editing) setEditValue(m.content);
@@ -45,8 +67,11 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
     { icon: "fa-copy", label: "Скопировать ID", onClick: () => navigator.clipboard?.writeText(m.author!.id) },
   ] : [];
 
-  const isGroup = m.author_id !== prevAuthorId;
-  const isMe = m.author_id === currentUserId;
+  const isWebhook = !!m.webhook_id;
+  const webhookDisplayName = m.webhook_name ?? "Webhook";
+  const webhookAvatar = m.webhook_avatar_url ?? null;
+  const isGroup = m.author_id !== prevAuthorId || isWebhook;
+  const isMe = !isWebhook && m.author_id === currentUserId;
   const hue = 268;
 
   if (m.is_deleted) {
@@ -59,7 +84,27 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
 
   return (
     <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      data-msgid={m.id}
       style={{ padding: isGroup ? "8px 16px 2px" : "0 16px 2px 74px", position: "relative", background: hover ? "var(--bg-hover)" : "transparent" }}>
+
+      {m.reply_to && (
+        <div
+          onClick={scrollToOriginal}
+          style={{
+            marginLeft: isGroup ? 52 : 0, marginBottom: 2,
+            display: "flex", alignItems: "center", gap: 6,
+            fontSize: 12.5, color: "var(--text-2)", cursor: "pointer", overflow: "hidden",
+          }}
+        >
+          <i className="fa-solid fa-reply" style={{ fontSize: 10, color: "var(--text-3)", transform: "scaleX(-1)" }} />
+          <strong style={{ color: "var(--text-1)", fontWeight: 600 }}>
+            {m.reply_to.author?.display_name ?? m.reply_to.author?.username ?? "Удалённый"}
+          </strong>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-3)" }}>
+            {m.reply_to.is_deleted ? "сообщение удалено" : m.reply_to.content}
+          </span>
+        </div>
+      )}
 
       {/* Action bar */}
       {hover && !editing && (
@@ -88,6 +133,9 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
               />
             )}
           </div>
+          <button onClick={beginReply} title="Ответить" style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-2)", fontSize: 12 }}>
+            <i className="fa-solid fa-reply" />
+          </button>
           {isMe && <button onClick={() => { startEdit(m.id); }} title="Редактировать" style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-2)", fontSize: 12 }}>
             <i className="fa-solid fa-pen" />
           </button>}
@@ -100,23 +148,28 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
       <div style={{ display: "flex", gap: 12 }}>
         {isGroup && (
           <div
-            onClick={openProfile}
-            onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}
-            style={{ cursor: "pointer" }}
+            onClick={isWebhook ? undefined : openProfile}
+            onContextMenu={isWebhook ? undefined : (e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}
+            style={{ cursor: isWebhook ? "default" : "pointer" }}
           >
-            <Avatar name={m.author?.username ?? "?"} size={40} shape="circle" avatarUrl={m.author?.avatar_url} />
+            <Avatar name={isWebhook ? webhookDisplayName : (m.author?.username ?? "?")} size={40} shape="circle" avatarUrl={isWebhook ? webhookAvatar : (m.author?.avatar_url ?? null)} />
           </div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
           {isGroup && (
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
               <span
-                onClick={openProfile}
-                onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}
-                style={{ fontSize: 14, fontWeight: 600, color: authorColor ?? "var(--text-0)", cursor: "pointer" }}
+                onClick={isWebhook ? undefined : openProfile}
+                onContextMenu={isWebhook ? undefined : (e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}
+                style={{ fontSize: 14, fontWeight: 600, color: isWebhook ? "var(--text-0)" : (authorColor ?? "var(--text-0)"), cursor: isWebhook ? "default" : "pointer" }}
               >
-                {m.author?.display_name ?? m.author?.username ?? "Неизвестный"}
+                {isWebhook ? webhookDisplayName : (m.author?.display_name ?? m.author?.username ?? "Неизвестный")}
               </span>
+              {isWebhook && (
+                <span style={{ fontSize: 9.5, padding: "1px 5px", borderRadius: 3, background: "var(--accent)", color: "#fff", fontWeight: 700, fontFamily: "Geist Mono", letterSpacing: 0.5 }}>
+                  ВЕБХУК
+                </span>
+              )}
               <span style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono" }}>
                 {formatMessageTime(m.created_at)}
               </span>
@@ -149,7 +202,7 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
               </div>
             </div>
           ) : (
-            <MessageContent content={m.content} />
+            <MessageContent content={m.content} embeds={m.embeds} />
           )}
           {/* Reactions */}
           {m.reactions.length > 0 && (

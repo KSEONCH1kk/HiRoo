@@ -6,11 +6,26 @@ import { Avatar } from "@/components/ui/Avatar";
 import { getSocket } from "@/lib/socket";
 import { useCallStore } from "@/store/callStore";
 import { usersApi } from "@/lib/api";
+import { playCall, stopCall } from "@/lib/sounds";
 import type { UserPublic } from "@/types";
 
 export function VoiceCall() {
   const { active, maximized, setMaximized, endCall, setControls } = useCallStore();
   const voice = useVoice();
+
+  const joinedRef = useRef<string | null>(null);
+  const [ringing, setRinging] = useState<boolean>(false);
+
+  const handleLeave = async () => {
+    if (ringing && active?.ringUserIds) {
+      for (const target of active.ringUserIds) {
+        getSocket().emit("voice_ring_cancel", { target_user_id: target, room_id: active.roomId });
+      }
+    }
+    await voice.leaveRoom();
+    endCall();
+    joinedRef.current = null;
+  };
 
   useEffect(() => {
     if (!active) { setControls(null); return; }
@@ -19,14 +34,13 @@ export function VoiceCall() {
       toggleDeafen: voice.toggleDeafen,
       toggleVideo: voice.toggleVideo,
       toggleScreenShare: voice.toggleScreenShare,
+      leave: handleLeave,
       isMuted: voice.isMuted,
       isDeafened: voice.isDeafened,
       isSharing: voice.isSharing,
       isVideo: voice.isVideo,
     });
-  }, [active, voice.isMuted, voice.isDeafened, voice.isSharing, voice.isVideo]);
-  const joinedRef = useRef<string | null>(null);
-  const [ringing, setRinging] = useState<boolean>(false);
+  }, [active, voice.isMuted, voice.isDeafened, voice.isSharing, voice.isVideo, ringing]);
 
   useEffect(() => {
     if (!active) {
@@ -37,16 +51,22 @@ export function VoiceCall() {
     joinedRef.current = active.roomId;
 
     voice.joinRoom(active.roomId, { video: active.video });
-    if (active.ringUserId) {
+    const targets = active.ringUserIds ?? [];
+    if (targets.length > 0) {
       setRinging(true);
-      getSocket().emit("voice_ring", {
-        target_user_id: active.ringUserId,
-        room_id: active.roomId,
-        video: !!active.video,
-      });
-      const onDecline = () => { setRinging(false); handleLeave(); };
-      getSocket().on("voice_ring_decline", onDecline);
-      return () => { getSocket().off("voice_ring_decline", onDecline); };
+      for (const target of targets) {
+        getSocket().emit("voice_ring", {
+          target_user_id: target,
+          room_id: active.roomId,
+          video: !!active.video,
+        });
+      }
+      // Clear ringing state for 1:1 calls when the only peer declines
+      if (targets.length === 1) {
+        const onDecline = () => { setRinging(false); handleLeave(); };
+        getSocket().on("voice_ring_decline", onDecline);
+        return () => { getSocket().off("voice_ring_decline", onDecline); };
+      }
     }
   }, [active?.roomId]);
 
@@ -54,14 +74,10 @@ export function VoiceCall() {
     if (voice.remotes.length > 0) setRinging(false);
   }, [voice.remotes.length]);
 
-  const handleLeave = async () => {
-    if (active?.ringUserId && ringing) {
-      getSocket().emit("voice_ring_cancel", { target_user_id: active.ringUserId, room_id: active.roomId });
-    }
-    await voice.leaveRoom();
-    endCall();
-    joinedRef.current = null;
-  };
+  useEffect(() => {
+    if (ringing) playCall(); else stopCall();
+    return () => { stopCall(); };
+  }, [ringing]);
 
   // Fetch real user profiles for all voice participants
   const identities = [voice.me?.identity, ...voice.remotes.map((r) => r.identity)].filter(Boolean) as string[];

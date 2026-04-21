@@ -1,6 +1,7 @@
 import json
 import uuid
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 import redis.asyncio as aioredis
 from fastapi import WebSocket
@@ -18,26 +19,57 @@ class ConnectionManager:
         self._voice_rooms: dict[str, set[str]] = {}
         # user_id -> room_id
         self._user_voice_room: dict[str, str] = {}
+        # room_id -> (started_at, starter_user_id, call_log_msg_id)
+        self._voice_room_meta: dict[str, tuple[datetime, str, str | None]] = {}
+        # server-imposed restrictions (persist until admin lifts)
+        self._server_muted: set[str] = set()
+        self._server_deafened: set[str] = set()
 
-    def voice_join(self, user_id: str, room_id: str) -> list[str]:
-        """Add user to voice room, leave previous one. Returns existing peers (before join)."""
+    def is_server_muted(self, user_id: str) -> bool:
+        return user_id in self._server_muted
+
+    def is_server_deafened(self, user_id: str) -> bool:
+        return user_id in self._server_deafened
+
+    def set_server_muted(self, user_id: str, on: bool) -> None:
+        if on: self._server_muted.add(user_id)
+        else: self._server_muted.discard(user_id)
+
+    def set_server_deafened(self, user_id: str, on: bool) -> None:
+        if on: self._server_deafened.add(user_id)
+        else: self._server_deafened.discard(user_id)
+
+    def voice_join(self, user_id: str, room_id: str) -> tuple[list[str], bool]:
+        """Add user to voice room, leave previous one.
+        Returns (existing_peers_before_join, is_new_call_started)."""
         self.voice_leave(user_id)
         existing = list(self._voice_rooms.get(room_id, set()))
         self._voice_rooms.setdefault(room_id, set()).add(user_id)
         self._user_voice_room[user_id] = room_id
-        return existing
+        is_new = False
+        if room_id not in self._voice_room_meta:
+            self._voice_room_meta[room_id] = (datetime.now(timezone.utc), user_id, None)
+            is_new = True
+        return existing, is_new
 
-    def voice_leave(self, user_id: str) -> tuple[str | None, list[str]]:
-        """Remove user from current voice room. Returns (room_id, remaining_peers)."""
+    def set_call_log_msg_id(self, room_id: str, msg_id: str) -> None:
+        meta = self._voice_room_meta.get(room_id)
+        if meta:
+            self._voice_room_meta[room_id] = (meta[0], meta[1], msg_id)
+
+    def voice_leave(self, user_id: str) -> tuple[str | None, list[str], tuple[datetime, str, str | None] | None]:
+        """Remove user. Returns (room_id, remaining_peers, call_meta_if_ended)."""
         room_id = self._user_voice_room.pop(user_id, None)
         if not room_id:
-            return None, []
+            return None, [], None
         members = self._voice_rooms.get(room_id, set())
         members.discard(user_id)
         remaining = list(members)
+        ended_meta: tuple[datetime, str, str | None] | None = None
         if not members:
             self._voice_rooms.pop(room_id, None)
-        return room_id, remaining
+            ended_meta = self._voice_room_meta.pop(room_id, None)
+        return room_id, remaining, ended_meta
 
     def voice_room_of(self, user_id: str) -> str | None:
         return self._user_voice_room.get(user_id)

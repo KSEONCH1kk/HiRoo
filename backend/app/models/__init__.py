@@ -7,6 +7,9 @@ from app.models.friend import FriendRequest
 from app.models.notification import Notification
 from app.models.voice import VoiceState
 from app.models.role import Role, MemberRole, Permissions
+from app.models.channel_permission import ChannelRolePermission
+from app.models.webhook import Webhook
+from app.models.ban import ServerBan
 
 __all__ = [
     "User", "Server", "ServerMember", "Channel",
@@ -14,4 +17,5 @@ __all__ = [
     "DMParticipant", "DMMessage", "FriendRequest",
     "Notification", "VoiceState",
     "Role", "MemberRole", "Permissions",
+    "ChannelRolePermission", "Webhook", "ServerBan",
 ]

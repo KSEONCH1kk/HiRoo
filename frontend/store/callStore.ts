@@ -15,7 +15,7 @@ export interface ActiveCall {
   dmId?: string;
   channelId?: string;
   serverId?: string;
-  ringUserId?: string;
+  ringUserIds?: string[];
   video?: boolean;
 }
 
@@ -24,6 +24,7 @@ export interface VoiceControls {
   toggleDeafen: () => void;
   toggleVideo: () => void;
   toggleScreenShare: () => void;
+  leave: () => Promise<void>;
   isMuted: boolean;
   isDeafened: boolean;
   isSharing: boolean;
@@ -35,12 +36,16 @@ interface CallState {
   active: ActiveCall | null;
   maximized: boolean;
   controls: VoiceControls | null;
+  serverMuted: boolean;
+  serverDeafened: boolean;
 
   setIncoming: (r: IncomingRing | null) => void;
   startCall: (c: ActiveCall) => void;
   endCall: () => void;
   setMaximized: (v: boolean) => void;
   setControls: (c: VoiceControls | null) => void;
+  setServerMuted: (v: boolean) => void;
+  setServerDeafened: (v: boolean) => void;
 }
 
 export const useCallStore = create<CallState>((set) => ({
@@ -48,9 +53,13 @@ export const useCallStore = create<CallState>((set) => ({
   active: null,
   maximized: true,
   controls: null,
+  serverMuted: false,
+  serverDeafened: false,
   setIncoming: (incoming) => set({ incoming }),
   startCall: (active) => set({ active, incoming: null, maximized: true }),
   endCall: () => set({ active: null, maximized: false, controls: null }),
   setMaximized: (maximized) => set({ maximized }),
   setControls: (controls) => set({ controls }),
+  setServerMuted: (serverMuted) => set({ serverMuted }),
+  setServerDeafened: (serverDeafened) => set({ serverDeafened }),
 }));

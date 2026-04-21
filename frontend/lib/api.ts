@@ -119,7 +119,20 @@ export const serversApi = {
     api.delete(`/api/servers/${serverId}/members/${userId}`),
   updateMember: (serverId: string, userId: string, data: { role?: string; nickname?: string }) =>
     api.patch<ServerMember>(`/api/servers/${serverId}/members/${userId}`, data).then((r) => r.data),
+  listBans: (serverId: string) =>
+    api.get<ServerBan[]>(`/api/servers/${serverId}/bans`).then((r) => r.data),
+  banMember: (serverId: string, userId: string, reason?: string | null) =>
+    api.post<ServerBan>(`/api/servers/${serverId}/bans`, { user_id: userId, reason: reason ?? null }).then((r) => r.data),
+  unbanMember: (serverId: string, userId: string) =>
+    api.delete(`/api/servers/${serverId}/bans/${userId}`),
 };
+
+export interface ServerBan {
+  user_id: string;
+  banned_by: string | null;
+  reason: string | null;
+  created_at: string;
+}
 
 // ── Channels ─────────────────────────────────────────────────
 export const channelsApi = {
@@ -133,7 +146,19 @@ export const channelsApi = {
     api.delete(`/api/servers/${serverId}/channels/${channelId}`),
   reorder: (serverId: string, orderedIds: string[]) =>
     api.post(`/api/servers/${serverId}/channels/reorder`, orderedIds),
+  listOverrides: (serverId: string, channelId: string) =>
+    api.get<ChannelRoleOverride[]>(`/api/servers/${serverId}/channels/${channelId}/permissions`).then((r) => r.data),
+  setOverride: (serverId: string, channelId: string, roleId: string, data: { allow: number; deny: number }) =>
+    api.put<ChannelRoleOverride>(`/api/servers/${serverId}/channels/${channelId}/permissions/${roleId}`, data).then((r) => r.data),
+  deleteOverride: (serverId: string, channelId: string, roleId: string) =>
+    api.delete(`/api/servers/${serverId}/channels/${channelId}/permissions/${roleId}`),
 };
+
+export interface ChannelRoleOverride {
+  role_id: string;
+  allow: number;
+  deny: number;
+}
 
 // ── Roles ────────────────────────────────────────────────────
 export interface Role {
@@ -179,7 +204,18 @@ export const messagesApi = {
     api.post(`/api/channels/${channelId}/messages/${msgId}/reactions`, { emoji }),
   removeReaction: (channelId: string, msgId: string, emoji: string) =>
     api.delete(`/api/channels/${channelId}/messages/${msgId}/reactions`, { params: { emoji } }),
+  search: (channelId: string, params: SearchParams) =>
+    api.get<{ items: Message[] }>(`/api/channels/${channelId}/messages/search`, { params }).then((r) => r.data),
 };
+
+export interface SearchParams {
+  q?: string;
+  author_id?: string;
+  before?: string;
+  after?: string;
+  has?: "link" | "file" | "image";
+  limit?: number;
+}
 
 // ── DMs ──────────────────────────────────────────────────────
 export const dmsApi = {
@@ -187,14 +223,27 @@ export const dmsApi = {
   get: (dmId: string) => api.get<DirectMessage>(`/api/dms/${dmId}`).then((r) => r.data),
   create: (user_ids: string[], name?: string) =>
     api.post<DirectMessage>("/api/dms", { user_ids, name }).then((r) => r.data),
-  sendMessage: (dmId: string, content: string) =>
-    api.post<DMMessageType>(`/api/dms/${dmId}/messages`, { content }).then((r) => r.data),
+  update: (dmId: string, data: { name?: string | null }) =>
+    api.patch<DirectMessage>(`/api/dms/${dmId}`, data).then((r) => r.data),
+  uploadIcon: (dmId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post<DirectMessage>(`/api/dms/${dmId}/icon`, form).then((r) => r.data);
+  },
+  deleteIcon: (dmId: string) =>
+    api.delete<DirectMessage>(`/api/dms/${dmId}/icon`).then((r) => r.data),
+  kickMember: (dmId: string, userId: string) =>
+    api.delete(`/api/dms/${dmId}/members/${userId}`),
+  leave: (dmId: string, myUserId: string) =>
+    api.delete(`/api/dms/${dmId}/members/${myUserId}`),
+  sendMessage: (dmId: string, content: string, reply_to_id?: string | null) =>
+    api.post<DMMessageType>(`/api/dms/${dmId}/messages`, { content, reply_to_id: reply_to_id ?? null }).then((r) => r.data),
   messages: (dmId: string, before?: string) =>
     api.get<{ items: DMMessageType[]; has_more: boolean; next_cursor: string | null }>(
       `/api/dms/${dmId}/messages`, { params: before ? { before } : undefined }
     ).then((r) => r.data),
-  send: (dmId: string, content: string) =>
-    api.post<DMMessageType>(`/api/dms/${dmId}/messages`, { content }).then((r) => r.data),
+  send: (dmId: string, content: string, reply_to_id?: string | null) =>
+    api.post<DMMessageType>(`/api/dms/${dmId}/messages`, { content, reply_to_id: reply_to_id ?? null }).then((r) => r.data),
   edit: (dmId: string, msgId: string, content: string) =>
     api.patch<DMMessageType>(`/api/dms/${dmId}/messages/${msgId}`, { content }).then((r) => r.data),
   delete: (dmId: string, msgId: string) =>
@@ -203,6 +252,8 @@ export const dmsApi = {
     api.post(`/api/dms/${dmId}/messages/${msgId}/reactions`, { emoji }),
   removeReaction: (dmId: string, msgId: string, emoji: string) =>
     api.delete(`/api/dms/${dmId}/messages/${msgId}/reactions`, { params: { emoji } }),
+  search: (dmId: string, params: SearchParams) =>
+    api.get<{ items: DMMessageType[] }>(`/api/dms/${dmId}/messages/search`, { params }).then((r) => r.data),
 };
 
 // ── Friends ──────────────────────────────────────────────────
@@ -248,6 +299,48 @@ export const uploadsApi = {
 };
 
 // ── Voice ────────────────────────────────────────────────────
+// ── Webhooks ─────────────────────────────────────────────────
+export interface Webhook {
+  id: string;
+  channel_id: string;
+  server_id: string;
+  name: string;
+  avatar_url: string | null;
+  token: string;
+  url: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export const webhooksApi = {
+  list: (serverId: string, channelId: string) =>
+    api.get<Webhook[]>(`/api/servers/${serverId}/channels/${channelId}/webhooks`).then((r) => r.data),
+  create: (serverId: string, channelId: string, data: { name: string; avatar_url?: string | null }) =>
+    api.post<Webhook>(`/api/servers/${serverId}/channels/${channelId}/webhooks`, data).then((r) => r.data),
+  update: (serverId: string, channelId: string, webhookId: string, data: { name?: string; avatar_url?: string | null }) =>
+    api.patch<Webhook>(`/api/servers/${serverId}/channels/${channelId}/webhooks/${webhookId}`, data).then((r) => r.data),
+  regenerate: (serverId: string, channelId: string, webhookId: string) =>
+    api.post<Webhook>(`/api/servers/${serverId}/channels/${channelId}/webhooks/${webhookId}/regenerate`).then((r) => r.data),
+  delete: (serverId: string, channelId: string, webhookId: string) =>
+    api.delete(`/api/servers/${serverId}/channels/${channelId}/webhooks/${webhookId}`),
+};
+
+// ── Unfurl ───────────────────────────────────────────────────
+export interface UnfurlData {
+  url: string;
+  resolved_url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  site_name: string | null;
+  kind: "link" | "image" | "video" | "audio";
+}
+
+export const unfurlApi = {
+  get: (url: string) =>
+    api.get<UnfurlData>("/api/unfurl", { params: { url } }).then((r) => r.data),
+};
+
 export const voiceApi = {
   join: (channel_id: string) =>
     api.post<VoiceState>("/api/voice/join", { channel_id }).then((r) => r.data),

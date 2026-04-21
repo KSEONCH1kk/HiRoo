@@ -5,12 +5,13 @@ from sqlalchemy import select
 from pydantic import BaseModel
 
 from app.core.config import settings
-from app.core.deps import get_db, get_current_active_user
+from app.core.deps import get_db, get_current_active_user, compute_permissions
 from app.models.user import User
 from app.models.server import ServerMember
 from app.models.channel import Channel
 from app.models.dm import DMParticipant
 from app.models.voice import VoiceState
+from app.models.role import Permissions
 from app.schemas.notification import VoiceJoin, VoiceStateUpdate, VoiceStateResponse
 from app.services.websocket_service import manager
 
@@ -49,6 +50,9 @@ async def voice_token(
         )
         if not mem_res.scalar_one_or_none():
             raise HTTPException(status_code=403, detail="Вы не участник сервера")
+        perms = await compute_permissions(channel.server_id, current_user.id, db, channel_id=channel.id)
+        if not (perms & Permissions.CONNECT_VOICE):
+            raise HTTPException(status_code=403, detail="Нет права подключаться к этому голосовому каналу")
     elif room.startswith("dm:"):
         try:
             dm_id = uuid.UUID(room.split(":", 1)[1])
@@ -65,23 +69,42 @@ async def voice_token(
     else:
         raise HTTPException(status_code=400, detail="Поддерживаются только префиксы 'dm:' и 'channel:'")
 
+    # Compute publish rights based on permissions (channel rooms only; DM rooms — full publish)
+    can_publish = True
+    can_publish_sources: list[str] = []
+    if room.startswith("channel:"):
+        # We already computed perms above for channel rooms
+        has_speak = bool(perms & Permissions.SPEAK_VOICE)
+        has_video = bool(perms & Permissions.VIDEO)
+        has_screen = bool(perms & Permissions.SCREENSHARE)
+        can_publish = has_speak
+        if has_speak:
+            can_publish_sources.append("microphone")
+            if has_video: can_publish_sources.append("camera")
+            if has_screen:
+                can_publish_sources.append("screen_share")
+                can_publish_sources.append("screen_share_audio")
+
     # Build JWT directly — LiveKit accepts standard HS256 JWT with `video` claim
     import time
     from jose import jwt
     now = int(time.time())
+    video_grant: dict = {
+        "roomJoin": True,
+        "room": room,
+        "canSubscribe": True,
+        "canPublishData": True,
+        "canPublish": can_publish,
+    }
+    if can_publish and can_publish_sources:
+        video_grant["canPublishSources"] = can_publish_sources
     payload = {
         "iss": settings.LIVEKIT_API_KEY,
         "sub": str(current_user.id),
         "name": current_user.display_name or current_user.username,
         "nbf": now,
         "exp": now + 3600 * 6,  # 6h
-        "video": {
-            "roomJoin": True,
-            "room": room,
-            "canPublish": True,
-            "canSubscribe": True,
-            "canPublishData": True,
-        },
+        "video": video_grant,
     }
     token = jwt.encode(payload, settings.LIVEKIT_API_SECRET, algorithm="HS256")
     return VoiceTokenResponse(url=settings.LIVEKIT_URL, token=token)

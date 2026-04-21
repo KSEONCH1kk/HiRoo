@@ -27,7 +27,8 @@
     "@fortawesome/free-regular-svg-icons": "^6.7.2",
     "clsx": "^2.1.1",
     "tailwind-merge": "^2.5.5",
-    "livekit-client": "^2.5.9"
+    "livekit-client": "^2.5.9",
+    "highlight.js": "^11.10.0"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

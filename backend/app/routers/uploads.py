@@ -11,16 +11,17 @@ from app.models.user import User
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
-ALLOWED_ATTACHMENT_TYPES = {
-    "image/jpeg", "image/png", "image/gif", "image/webp",
-    "video/mp4", "video/webm",
-    "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm",
-    "application/pdf",
-    "text/plain",
-    "application/zip",
+# Blocked for safety: anything that a browser could execute inline if served statically.
+BLOCKED_CONTENT_TYPES = {
+    "text/html", "application/xhtml+xml", "image/svg+xml",
+    "application/x-msdownload", "application/x-sh",
+}
+BLOCKED_EXTENSIONS = {
+    ".html", ".htm", ".xhtml", ".svg",
+    ".exe", ".bat", ".cmd", ".ps1", ".msi", ".sh", ".com", ".scr",
 }
 
-MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024  # 25 MB
+MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 class UploadResponse(BaseModel):
@@ -37,26 +38,31 @@ async def upload_attachment(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
 ):
-    if file.content_type not in ALLOWED_ATTACHMENT_TYPES:
-        raise HTTPException(status_code=415, detail=f"Неподдерживаемый тип файла: {file.content_type}")
+    original = file.filename or "file"
+    ext_lower = ""
+    if "." in original:
+        ext_lower = "." + original.rsplit(".", 1)[-1].lower()
+
+    if (file.content_type or "").lower() in BLOCKED_CONTENT_TYPES or ext_lower in BLOCKED_EXTENSIONS:
+        raise HTTPException(status_code=415, detail="Этот тип файла запрещён")
 
     content = await file.read()
     if len(content) > MAX_ATTACHMENT_BYTES:
-        raise HTTPException(status_code=413, detail="Файл слишком большой (максимум 25 МБ)")
+        raise HTTPException(status_code=413, detail="Файл слишком большой (максимум 100 МБ)")
     if not content:
         raise HTTPException(status_code=400, detail="Пустой файл")
 
     upload_dir = Path(settings.UPLOAD_DIR) / "attachments" / str(current_user.id)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    original = file.filename or "file"
-    safe_name = "".join(c for c in original if c.isalnum() or c in "._-")[:80] or "file"
-    ext = ""
-    if "." in safe_name:
-        safe_name, ext = safe_name.rsplit(".", 1)
-        ext = "." + ext.lower()
+    safe_stem = "".join(c for c in original if c.isalnum() or c in "._-")[:80] or "file"
+    stem_part = safe_stem
+    ext_part = ""
+    if "." in safe_stem:
+        stem_part, ext_raw = safe_stem.rsplit(".", 1)
+        ext_part = "." + ext_raw.lower()
     unique_id = uuid.uuid4().hex[:12]
-    stored_name = f"{safe_name}-{unique_id}{ext}"
+    stored_name = f"{stem_part}-{unique_id}{ext_part}"
     dest = upload_dir / stored_name
 
     async with aiofiles.open(dest, "wb") as f:
@@ -65,6 +71,6 @@ async def upload_attachment(
     return UploadResponse(
         url=f"/uploads/attachments/{current_user.id}/{stored_name}",
         filename=original,
-        content_type=file.content_type,
+        content_type=file.content_type or "application/octet-stream",
         size=len(content),
     )

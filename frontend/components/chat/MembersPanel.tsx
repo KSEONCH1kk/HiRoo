@@ -1,15 +1,47 @@
 "use client";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/Avatar";
+import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
+import { RoleAssignModal } from "@/components/modals/RoleAssignModal";
 import { useUIStore } from "@/store/uiStore";
+import { useAuthStore } from "@/store/authStore";
 import { useServerRoles } from "@/hooks/useServerRoles";
-import type { ServerMember } from "@/types";
+import { useServerPermissions } from "@/hooks/useServerPermissions";
+import { serversApi, dmsApi } from "@/lib/api";
+import type { ServerMember, UserPublic } from "@/types";
 
 interface Props { serverId: string; }
 
 export function MembersPanel({ serverId }: Props) {
   const { setProfileUser } = useUIStore();
+  const { user: me } = useAuthStore();
   const { members, rolesById, getHighestRole, getColor, getLabel } = useServerRoles(serverId);
+  const { has } = useServerPermissions(serverId);
+  const router = useRouter();
+  const qc = useQueryClient();
+  const [ctx, setCtx] = useState<{ x: number; y: number; user: UserPublic } | null>(null);
+  const [roleModal, setRoleModal] = useState<UserPublic | null>(null);
+
+  const kick = useMutation({
+    mutationFn: (userId: string) => serversApi.kickMember(serverId, userId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["members", serverId] }),
+  });
+  const ban = useMutation({
+    mutationFn: (userId: string) => serversApi.banMember(serverId, userId, null),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["members", serverId] }),
+  });
+  const openDM = useMutation({
+    mutationFn: async (userId: string) => {
+      const dm = await dmsApi.create([userId]);
+      return dm;
+    },
+    onSuccess: (dm) => {
+      qc.invalidateQueries({ queryKey: ["dms"] });
+      router.push(`/dms/${dm.id}`);
+    },
+  });
 
   const { hoistGroups, onlineOthers, offline } = useMemo(() => {
     const hoistMap = new Map<string, { roleName: string; color: string; position: number; members: ServerMember[] }>();
@@ -36,13 +68,39 @@ export function MembersPanel({ serverId }: Props) {
     return { hoistGroups, onlineOthers, offline };
   }, [members, rolesById]);
 
+  const buildMenu = (u: UserPublic): MenuItem[] => {
+    const items: MenuItem[] = [
+      { icon: "fa-user", label: "Профиль", onClick: () => setProfileUser(u) },
+      { icon: "fa-paper-plane", label: "Личное сообщение", onClick: () => openDM.mutate(u.id) },
+      { icon: "fa-copy", label: "Скопировать ID", onClick: () => navigator.clipboard?.writeText(u.id) },
+    ];
+    const isSelf = u.id === me?.id;
+    if (!isSelf && (has("MANAGE_ROLES") || has("MANAGE_SERVER"))) {
+      items.push({ separator: true, label: "" } as MenuItem);
+      items.push({ icon: "fa-crown", label: "Управление ролями", onClick: () => setRoleModal(u) });
+    }
+    if (!isSelf && has("KICK_MEMBERS")) {
+      items.push({ icon: "fa-user-minus", label: "Исключить", danger: true, onClick: () => {
+        if (confirm(`Исключить ${u.display_name ?? u.username} с сервера?`)) kick.mutate(u.id);
+      }});
+    }
+    if (!isSelf && has("BAN_MEMBERS")) {
+      items.push({ icon: "fa-hammer", label: "Забанить", danger: true, onClick: () => {
+        if (confirm(`Забанить ${u.display_name ?? u.username}?`)) ban.mutate(u.id);
+      }});
+    }
+    return items;
+  };
+
   const renderMember = (m: ServerMember) => {
     const color = getColor(m.user_id);
     const label = getLabel(m.user_id);
     const displayName = m.nickname || m.user.display_name || m.user.username;
     return (
-      <div key={m.user.id}
+      <div
+        key={m.user.id}
         onClick={() => setProfileUser(m.user)}
+        onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, user: m.user }); }}
         style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", borderRadius: 6, cursor: "pointer" }}
         onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
         onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -97,6 +155,9 @@ export function MembersPanel({ serverId }: Props) {
           {offline.map(renderMember)}
         </>
       )}
+
+      {ctx && <ContextMenu x={ctx.x} y={ctx.y} items={buildMenu(ctx.user)} onClose={() => setCtx(null)} />}
+      {roleModal && <RoleAssignModal serverId={serverId} user={roleModal} onClose={() => setRoleModal(null)} />}
     </div>
   );
 }

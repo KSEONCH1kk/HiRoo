@@ -1,16 +1,185 @@
 import json
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.core.security import verify_access_token
 from app.core.deps import get_db, get_redis
 from app.models.user import User
 from app.models.server import ServerMember
 from app.models.channel import Channel
+from app.models.dm import DMParticipant, DMMessage, DirectMessage
+from app.schemas.message import DMMessageResponse, ReactionResponse
+from app.schemas.user import UserPublic
 from app.services.websocket_service import manager
 import redis.asyncio as aioredis
+
+
+async def _dm_participant_ids(db: AsyncSession, dm_id: uuid.UUID) -> list[str]:
+    res = await db.execute(
+        select(DMParticipant.user_id).where(DMParticipant.dm_id == dm_id)
+    )
+    return [str(r[0]) for r in res.all()]
+
+
+def _dm_msg_payload(msg: DMMessage, content_override: str | None = None) -> dict:
+    author = (
+        UserPublic.model_validate(msg.author, from_attributes=True).model_dump(mode="json")
+        if msg.author else None
+    )
+    payload = DMMessageResponse(
+        id=msg.id,
+        dm_id=msg.dm_id,
+        author_id=msg.author_id,
+        type=getattr(msg, "type", "text") or "text",
+        content=content_override if content_override is not None else msg.content,
+        edited_at=msg.edited_at,
+        is_deleted=msg.is_deleted,
+        created_at=msg.created_at,
+        author=None,
+        reactions=[],
+    ).model_dump(mode="json")
+    payload["author"] = author
+    return payload
+
+
+async def _log_call_started(
+    db: AsyncSession,
+    room_id: str,
+    starter_id: str,
+) -> None:
+    """Insert an 'ongoing' call_log DMMessage when first user joins a DM room."""
+    if not room_id.startswith("dm:"):
+        return
+    try:
+        dm_uuid = uuid.UUID(room_id.split(":", 1)[1])
+    except (ValueError, IndexError):
+        return
+    try:
+        starter_uuid = uuid.UUID(starter_id)
+    except (ValueError, TypeError):
+        starter_uuid = None
+    now = datetime.now(timezone.utc)
+    msg = DMMessage(
+        dm_id=dm_uuid,
+        author_id=starter_uuid,
+        type="call_log",
+        content="ongoing",
+        created_at=now,
+    )
+    db.add(msg)
+    dm_res = await db.execute(select(DirectMessage).where(DirectMessage.id == dm_uuid))
+    dm = dm_res.scalar_one_or_none()
+    if dm:
+        dm.updated_at = now
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        return
+
+    loaded = await db.execute(
+        select(DMMessage)
+        .options(selectinload(DMMessage.author), selectinload(DMMessage.reactions))
+        .where(DMMessage.id == msg.id)
+    )
+    stored = loaded.scalar_one_or_none()
+    if not stored:
+        return
+
+    manager.set_call_log_msg_id(room_id, str(stored.id))
+    payload = _dm_msg_payload(stored)
+    part_ids = await _dm_participant_ids(db, dm_uuid)
+    await manager.broadcast_to_users(part_ids, {"event": "dm_message_create", "data": payload})
+
+
+async def _log_call_ended(
+    db: AsyncSession,
+    room_id: str,
+    started_at: datetime,
+    starter_id: str,
+    call_log_msg_id: str | None,
+) -> None:
+    """Update the existing 'ongoing' call_log with final duration, or insert one if missing."""
+    if not room_id.startswith("dm:"):
+        return
+    try:
+        dm_uuid = uuid.UUID(room_id.split(":", 1)[1])
+    except (ValueError, IndexError):
+        return
+    try:
+        starter_uuid = uuid.UUID(starter_id)
+    except (ValueError, TypeError):
+        starter_uuid = None
+    duration = max(0, int((datetime.now(timezone.utc) - started_at).total_seconds()))
+
+    existing = None
+    if call_log_msg_id:
+        try:
+            existing_uuid = uuid.UUID(call_log_msg_id)
+        except (ValueError, TypeError):
+            existing_uuid = None
+        if existing_uuid:
+            res = await db.execute(
+                select(DMMessage)
+                .options(selectinload(DMMessage.author), selectinload(DMMessage.reactions))
+                .where(DMMessage.id == existing_uuid)
+            )
+            existing = res.scalar_one_or_none()
+
+    if existing:
+        existing.content = str(duration)
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            return
+        reloaded = await db.execute(
+            select(DMMessage)
+            .options(selectinload(DMMessage.author), selectinload(DMMessage.reactions))
+            .where(DMMessage.id == existing.id)
+        )
+        stored = reloaded.scalar_one_or_none()
+        if not stored:
+            return
+        payload = _dm_msg_payload(stored)
+        part_ids = await _dm_participant_ids(db, dm_uuid)
+        await manager.broadcast_to_users(part_ids, {"event": "dm_message_update", "data": payload})
+        return
+
+    # Fallback: no pre-existing log — insert a fresh one with duration
+    now = datetime.now(timezone.utc)
+    msg = DMMessage(
+        dm_id=dm_uuid,
+        author_id=starter_uuid,
+        type="call_log",
+        content=str(duration),
+        created_at=now,
+    )
+    db.add(msg)
+    dm_res = await db.execute(select(DirectMessage).where(DirectMessage.id == dm_uuid))
+    dm = dm_res.scalar_one_or_none()
+    if dm:
+        dm.updated_at = now
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        return
+    loaded = await db.execute(
+        select(DMMessage)
+        .options(selectinload(DMMessage.author), selectinload(DMMessage.reactions))
+        .where(DMMessage.id == msg.id)
+    )
+    stored = loaded.scalar_one_or_none()
+    if not stored:
+        return
+    payload = _dm_msg_payload(stored)
+    part_ids = await _dm_participant_ids(db, dm_uuid)
+    await manager.broadcast_to_users(part_ids, {"event": "dm_message_create", "data": payload})
 
 router = APIRouter(tags=["websocket"])
 
@@ -62,7 +231,14 @@ async def websocket_endpoint(
         for (sid,) in result.all():
             manager.join_server(str(sid), str(user.id))
 
-        await ws.send_text(json.dumps({"event": "ready", "data": {"user_id": str(user.id)}}))
+        await ws.send_text(json.dumps({
+            "event": "ready",
+            "data": {
+                "user_id": str(user.id),
+                "server_muted": manager.is_server_muted(str(user.id)),
+                "server_deafened": manager.is_server_deafened(str(user.id)),
+            },
+        }))
 
         # Update status to online and commit immediately so other sessions see it
         user.status = "online"
@@ -98,10 +274,34 @@ async def websocket_endpoint(
                 )
                 if mem_res.scalar_one_or_none():
                     snapshot[room_id] = list(members)
-        if snapshot:
+            elif room_id.startswith("dm:"):
+                try:
+                    dm_uuid = uuid.UUID(room_id.split(":", 1)[1])
+                except Exception:
+                    continue
+                p_res = await db.execute(
+                    select(DMParticipant).where(
+                        DMParticipant.dm_id == dm_uuid,
+                        DMParticipant.user_id == user.id,
+                    )
+                )
+                if p_res.scalar_one_or_none():
+                    snapshot[room_id] = list(members)
+        # Collect muted/deafened users relevant to this user's rooms
+        relevant_users: set[str] = set()
+        for members in snapshot.values():
+            for uid in members:
+                relevant_users.add(uid)
+        muted_list = [u for u in relevant_users if manager.is_server_muted(u)]
+        deafened_list = [u for u in relevant_users if manager.is_server_deafened(u)]
+        if snapshot or muted_list or deafened_list:
             await ws.send_text(json.dumps({
                 "event": "voice_snapshot",
-                "data": {"rooms": snapshot},
+                "data": {
+                    "rooms": snapshot,
+                    "muted_users": muted_list,
+                    "deafened_users": deafened_list,
+                },
             }))
 
         # Main receive loop
@@ -115,22 +315,37 @@ async def websocket_endpoint(
             event = data.get("event")
             payload = data.get("data", {})
 
-            if event == "typing_start":
+            if event in ("typing_start", "typing_stop"):
+                is_typing = event == "typing_start"
                 channel_id = payload.get("channel_id")
                 dm_id = payload.get("dm_id")
-                await manager.broadcast_to_server(
-                    payload.get("server_id", ""),
-                    {"event": "typing", "data": {"user_id": str(user.id), "channel_id": channel_id, "is_typing": True}},
-                    exclude_user=str(user.id),
-                )
-
-            elif event == "typing_stop":
-                channel_id = payload.get("channel_id")
-                await manager.broadcast_to_server(
-                    payload.get("server_id", ""),
-                    {"event": "typing", "data": {"user_id": str(user.id), "channel_id": channel_id, "is_typing": False}},
-                    exclude_user=str(user.id),
-                )
+                typing_data = {
+                    "event": "typing",
+                    "data": {
+                        "user_id": str(user.id),
+                        "username": user.username,
+                        "display_name": user.display_name,
+                        "channel_id": channel_id,
+                        "dm_id": dm_id,
+                        "is_typing": is_typing,
+                    },
+                }
+                if dm_id:
+                    try:
+                        dm_uuid = uuid.UUID(dm_id)
+                    except (ValueError, TypeError):
+                        continue
+                    part_ids = await _dm_participant_ids(db, dm_uuid)
+                    if str(user.id) in part_ids:
+                        await manager.broadcast_to_users(
+                            part_ids, typing_data, exclude_user=str(user.id)
+                        )
+                else:
+                    await manager.broadcast_to_server(
+                        payload.get("server_id", ""),
+                        typing_data,
+                        exclude_user=str(user.id),
+                    )
 
             elif event == "voice_signal":
                 target_id = payload.get("target_user_id")
@@ -147,11 +362,36 @@ async def websocket_endpoint(
                 room_id = payload.get("room_id")
                 if not room_id:
                     continue
-                existing = manager.voice_join(str(user.id), room_id)
+                # Enforce CONNECT_VOICE for channel rooms (with channel override)
+                if room_id.startswith("channel:"):
+                    try:
+                        ch_uuid = uuid.UUID(room_id.split(":", 1)[1])
+                    except (ValueError, IndexError):
+                        continue
+                    ch_res_auth = await db.execute(select(Channel).where(Channel.id == ch_uuid))
+                    ch_auth = ch_res_auth.scalar_one_or_none()
+                    if not ch_auth:
+                        continue
+                    from app.core.deps import compute_permissions as _cp
+                    from app.models.role import Permissions as _Perms
+                    perms = await _cp(ch_auth.server_id, user.id, db, channel_id=ch_auth.id)
+                    if (perms & _Perms.CONNECT_VOICE) == 0:
+                        await ws.send_text(json.dumps({
+                            "event": "error",
+                            "data": {"message": "Нет права подключаться к этому каналу"},
+                        }))
+                        continue
+                existing, is_new_call = manager.voice_join(str(user.id), room_id)
                 await ws.send_text(json.dumps({
                     "event": "voice_room_joined",
                     "data": {"room_id": room_id, "peers": existing},
                 }))
+                if is_new_call and room_id.startswith("dm:"):
+                    try:
+                        await _log_call_started(db, room_id, str(user.id))
+                    except Exception:
+                        try: await db.rollback()
+                        except Exception: pass
                 # Broadcast to: existing peers + server members (so sidebar updates for everyone)
                 notify_data = {
                     "event": "voice_peer_joined",
@@ -176,14 +416,30 @@ async def websocket_endpoint(
                             continue
                     except Exception:
                         pass
-                # Fallback: just voice-room peers (for DM rooms)
+                if room_id.startswith("dm:"):
+                    try:
+                        dm_uuid = uuid.UUID(room_id.split(":", 1)[1])
+                        part_ids = await _dm_participant_ids(db, dm_uuid)
+                        await manager.broadcast_to_users(
+                            part_ids, notify_data, exclude_user=str(user.id)
+                        )
+                        continue
+                    except Exception:
+                        pass
                 for peer_id in existing:
                     await manager.send_to_user(peer_id, notify_data)
 
             elif event == "voice_leave":
-                room_id, remaining = manager.voice_leave(str(user.id))
+                room_id, remaining, ended_meta = manager.voice_leave(str(user.id))
                 if not room_id:
                     continue
+                if ended_meta:
+                    started_at, starter_id, log_msg_id = ended_meta
+                    try:
+                        await _log_call_ended(db, room_id, started_at, starter_id, log_msg_id)
+                    except Exception:
+                        try: await db.rollback()
+                        except Exception: pass
                 notify_data = {
                     "event": "voice_peer_left",
                     "data": {"room_id": room_id, "user_id": str(user.id)},
@@ -203,8 +459,113 @@ async def websocket_endpoint(
                             continue
                     except Exception:
                         pass
+                if room_id.startswith("dm:"):
+                    try:
+                        dm_uuid = uuid.UUID(room_id.split(":", 1)[1])
+                        part_ids = await _dm_participant_ids(db, dm_uuid)
+                        await manager.broadcast_to_users(
+                            part_ids, notify_data, exclude_user=str(user.id)
+                        )
+                        continue
+                    except Exception:
+                        pass
                 for peer_id in remaining:
                     await manager.send_to_user(peer_id, notify_data)
+
+            elif event == "voice_force_move":
+                target_id = payload.get("target_user_id")
+                to_room = payload.get("to_room_id")
+                if not target_id or not to_room or not to_room.startswith("channel:"):
+                    continue
+                try:
+                    to_ch_uuid = uuid.UUID(to_room.split(":", 1)[1])
+                except (ValueError, IndexError):
+                    continue
+                # Destination channel must be a voice channel on a server where initiator has MOVE_MEMBERS
+                ch_res = await db.execute(select(Channel).where(Channel.id == to_ch_uuid))
+                to_channel = ch_res.scalar_one_or_none()
+                if not to_channel or to_channel.type != "voice":
+                    continue
+                from app.core.deps import compute_permissions as _cp
+                from app.models.role import Permissions as _Perms
+                perms = await _cp(to_channel.server_id, user.id, db)
+                if (perms & _Perms.MOVE_MEMBERS) != _Perms.MOVE_MEMBERS and (perms & _Perms.ADMIN) == 0:
+                    continue
+                # Target must be on same server
+                mem_res = await db.execute(
+                    select(ServerMember).where(
+                        ServerMember.server_id == to_channel.server_id,
+                        ServerMember.user_id == uuid.UUID(target_id),
+                    )
+                )
+                if not mem_res.scalar_one_or_none():
+                    continue
+                current_room = manager.voice_room_of(target_id)
+                if current_room == to_room:
+                    continue
+                await manager.send_to_user(target_id, {
+                    "event": "voice_force_move",
+                    "data": {
+                        "to_room_id": to_room,
+                        "from_user_id": str(user.id),
+                    },
+                })
+
+            elif event in (
+                "voice_force_disconnect",
+                "voice_force_mute", "voice_force_unmute",
+                "voice_force_deafen", "voice_force_undeafen",
+            ):
+                target_id = payload.get("target_user_id")
+                if not target_id:
+                    continue
+                # Target must be in a voice room
+                current_room = manager.voice_room_of(target_id)
+                if not current_room or not current_room.startswith("channel:"):
+                    continue
+                try:
+                    ch_uuid = uuid.UUID(current_room.split(":", 1)[1])
+                except (ValueError, IndexError):
+                    continue
+                ch_res = await db.execute(select(Channel).where(Channel.id == ch_uuid))
+                ch_row = ch_res.scalar_one_or_none()
+                if not ch_row:
+                    continue
+                from app.core.deps import compute_permissions as _cp
+                from app.models.role import Permissions as _Perms
+                admin_perms = await _cp(ch_row.server_id, user.id, db)
+                need = {
+                    "voice_force_disconnect": _Perms.MOVE_MEMBERS,
+                    "voice_force_mute": _Perms.MUTE_MEMBERS,
+                    "voice_force_unmute": _Perms.MUTE_MEMBERS,
+                    "voice_force_deafen": _Perms.DEAFEN_MEMBERS,
+                    "voice_force_undeafen": _Perms.DEAFEN_MEMBERS,
+                }[event]
+                if (admin_perms & need) == 0 and (admin_perms & _Perms.ADMIN) == 0:
+                    continue
+                # Persist server-imposed state
+                if event == "voice_force_mute":
+                    manager.set_server_muted(target_id, True)
+                elif event == "voice_force_unmute":
+                    manager.set_server_muted(target_id, False)
+                elif event == "voice_force_deafen":
+                    manager.set_server_deafened(target_id, True)
+                elif event == "voice_force_undeafen":
+                    manager.set_server_deafened(target_id, False)
+                await manager.send_to_user(target_id, {
+                    "event": event,
+                    "data": {"from_user_id": str(user.id)},
+                })
+                # Broadcast state change to server so other admins see current state
+                if event != "voice_force_disconnect":
+                    await manager.broadcast_to_server(str(ch_row.server_id), {
+                        "event": "voice_user_state",
+                        "data": {
+                            "user_id": target_id,
+                            "server_muted": manager.is_server_muted(target_id),
+                            "server_deafened": manager.is_server_deafened(target_id),
+                        },
+                    })
 
             elif event == "voice_ring":
                 target_id = payload.get("target_user_id")
@@ -244,12 +605,20 @@ async def websocket_endpoint(
     finally:
         if user:
             # Leave voice room if any
-            room_id, remaining = manager.voice_leave(str(user.id))
+            room_id, remaining, ended_meta = manager.voice_leave(str(user.id))
+            if room_id and ended_meta:
+                started_at, starter_id, log_msg_id = ended_meta
+                try:
+                    await _log_call_ended(db, room_id, started_at, starter_id, log_msg_id)
+                except Exception:
+                    try: await db.rollback()
+                    except Exception: pass
             if room_id:
                 notify_data = {
                     "event": "voice_peer_left",
                     "data": {"room_id": room_id, "user_id": str(user.id)},
                 }
+                broadcasted = False
                 if room_id.startswith("channel:"):
                     channel_uuid_str = room_id.split(":", 1)[1]
                     try:
@@ -259,13 +628,18 @@ async def websocket_endpoint(
                         channel = ch_res.scalar_one_or_none()
                         if channel:
                             await manager.broadcast_to_server(str(channel.server_id), notify_data)
-                        else:
-                            for peer_id in remaining:
-                                await manager.send_to_user(peer_id, notify_data)
+                            broadcasted = True
                     except Exception:
-                        for peer_id in remaining:
-                            await manager.send_to_user(peer_id, notify_data)
-                else:
+                        pass
+                elif room_id.startswith("dm:"):
+                    try:
+                        dm_uuid = uuid.UUID(room_id.split(":", 1)[1])
+                        part_ids = await _dm_participant_ids(db, dm_uuid)
+                        await manager.broadcast_to_users(part_ids, notify_data)
+                        broadcasted = True
+                    except Exception:
+                        pass
+                if not broadcasted:
                     for peer_id in remaining:
                         await manager.send_to_user(peer_id, notify_data)
             manager.disconnect(str(user.id), ws)

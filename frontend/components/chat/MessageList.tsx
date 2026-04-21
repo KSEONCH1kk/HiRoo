@@ -6,6 +6,7 @@ import { useAuthStore } from "@/store/authStore";
 import { messagesApi } from "@/lib/api";
 import { useServerRoles } from "@/hooks/useServerRoles";
 import { Message } from "./Message";
+import { TypingIndicator } from "./TypingIndicator";
 import type { Message as MsgType } from "@/types";
 
 interface Props {
@@ -16,7 +17,7 @@ interface Props {
 export function MessageList({ channelId, serverId }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { messages, addReaction, removeReaction, cancelEdit } = useChatStore();
+  const { messages, addReaction, removeReaction, cancelEdit, updateMessage } = useChatStore();
   const { user } = useAuthStore();
   const { getColor } = useServerRoles(serverId);
   const { loadMore, hasMore, loading } = useMessages(channelId);
@@ -54,40 +55,46 @@ export function MessageList({ channelId, serverId }: Props) {
   }, [channelId, msgs, user]);
 
   const handleEdit = useCallback(async (messageId: string, content: string) => {
-    try { await messagesApi.edit(channelId, messageId, content); } catch {}
-  }, [channelId]);
+    try {
+      const updated = await messagesApi.edit(channelId, messageId, content);
+      updateMessage(updated);
+    } catch {}
+  }, [channelId, updateMessage]);
 
   const handleDelete = useCallback(async (messageId: string) => {
     try { await messagesApi.delete(channelId, messageId); } catch {}
   }, [channelId]);
 
   return (
-    <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 0", display: "flex", flexDirection: "column" }}
-    >
-      {loading && (
-        <div style={{ textAlign: "center", padding: 12, fontSize: 12, color: "var(--text-2)", fontFamily: "Geist Mono" }}>
-          загрузка…
-        </div>
-      )}
-      {msgs.map((msg, i) => {
-        const prev = msgs[i - 1];
-        return (
-          <Message
-            key={msg.id}
-            message={msg}
-            prevAuthorId={prev?.author?.id ?? null}
-            currentUserId={user?.id}
-            authorColor={msg.author?.id ? getColor(msg.author.id) : null}
-            onReact={handleReact}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-          />
-        );
-      })}
-      <div ref={bottomRef} />
-    </div>
+    <>
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 0", display: "flex", flexDirection: "column" }}
+      >
+        {loading && (
+          <div style={{ textAlign: "center", padding: 12, fontSize: 12, color: "var(--text-2)", fontFamily: "Geist Mono" }}>
+            загрузка…
+          </div>
+        )}
+        {msgs.map((msg, i) => {
+          const prev = msgs[i - 1];
+          return (
+            <Message
+              key={msg.id}
+              message={msg}
+              prevAuthorId={prev?.author?.id ?? null}
+              currentUserId={user?.id}
+              authorColor={msg.author?.id ? getColor(msg.author.id) : null}
+              onReact={handleReact}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+            />
+          );
+        })}
+        <div ref={bottomRef} />
+      </div>
+      <TypingIndicator roomKey={channelId} />
+    </>
   );
 }

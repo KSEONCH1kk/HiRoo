@@ -2,8 +2,9 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import selectinload
+from pydantic import BaseModel
 
 from app.core.deps import get_db, get_current_active_user, require_server_member, compute_permissions
 from app.models.role import Permissions
@@ -13,13 +14,17 @@ from app.models.channel import Channel
 from app.models.message import Message, MessageReaction
 from app.schemas.message import (
     MessageCreate, MessageUpdate, MessageResponse,
-    ReactionCreate, ReactionResponse, PaginatedMessages,
+    ReactionCreate, ReactionResponse, PaginatedMessages, ReplyPreview,
 )
 from app.schemas.user import UserPublic
 from app.services.websocket_service import manager
 from app.services.notification_service import create_notification
 
 router = APIRouter(prefix="/api/channels/{channel_id}/messages", tags=["messages"])
+
+
+class MessageSearchResponse(BaseModel):
+    items: list[MessageResponse]
 
 
 async def _get_channel_and_member(
@@ -53,17 +58,32 @@ def _build_response(msg: Message, current_user_id: uuid.UUID) -> MessageResponse
         if r.user_id == current_user_id:
             reaction_map[r.emoji].me = True
     author = UserPublic.model_validate(msg.author, from_attributes=True) if msg.author else None
+    reply_to = None
+    ref = getattr(msg, "reply_to", None)
+    if ref:
+        ref_author = UserPublic.model_validate(ref.author, from_attributes=True) if ref.author else None
+        reply_to = ReplyPreview(
+            id=ref.id,
+            author=ref_author,
+            content=(ref.content or "")[:200],
+            is_deleted=ref.is_deleted,
+        )
     return MessageResponse(
         id=msg.id,
         channel_id=msg.channel_id,
         author_id=msg.author_id,
         content=msg.content,
         reply_to_id=msg.reply_to_id,
+        reply_to=reply_to,
         edited_at=msg.edited_at,
         is_deleted=msg.is_deleted,
         created_at=msg.created_at,
         author=author,
         reactions=list(reaction_map.values()),
+        webhook_id=getattr(msg, "webhook_id", None),
+        webhook_name=getattr(msg, "webhook_name", None),
+        webhook_avatar_url=getattr(msg, "webhook_avatar_url", None),
+        embeds=getattr(msg, "embeds", None),
     )
 
 
@@ -76,10 +96,17 @@ async def get_messages(
     current_user: User = Depends(get_current_active_user),
 ):
     channel, _ = await _get_channel_and_member(channel_id, db, current_user)
+    perms = await compute_permissions(channel.server_id, current_user.id, db, channel_id=channel.id)
+    if not (perms & Permissions.READ_MESSAGES):
+        raise HTTPException(status_code=403, detail="Нет права читать сообщения в этом канале")
 
     q = (
         select(Message)
-        .options(selectinload(Message.author), selectinload(Message.reactions))
+        .options(
+            selectinload(Message.author),
+            selectinload(Message.reactions),
+            selectinload(Message.reply_to).selectinload(Message.author),
+        )
         .where(Message.channel_id == channel_id, Message.is_deleted == False)
         .order_by(Message.created_at.desc())
         .limit(limit + 1)
@@ -110,9 +137,16 @@ async def send_message(
     current_user: User = Depends(get_current_active_user),
 ):
     channel, _ = await _get_channel_and_member(channel_id, db, current_user)
-    perms = await compute_permissions(channel.server_id, current_user.id, db)
+    perms = await compute_permissions(channel.server_id, current_user.id, db, channel_id=channel.id)
     if not (perms & Permissions.SEND_MESSAGES):
         raise HTTPException(status_code=403, detail="Нет права отправлять сообщения в этом канале")
+
+    import re as _re
+    content_for_checks = body.content or ""
+    if "/uploads/attachments/" in content_for_checks and not (perms & Permissions.ATTACH_FILES):
+        raise HTTPException(status_code=403, detail="Нет права прикреплять файлы")
+    if _re.search(r"(^|[^\w])@(everyone|all)\b", content_for_checks, _re.IGNORECASE) and not (perms & Permissions.MENTION_EVERYONE):
+        raise HTTPException(status_code=403, detail="Нет права упоминать @everyone")
 
     msg = Message(
         channel_id=channel_id,
@@ -125,7 +159,11 @@ async def send_message(
 
     loaded = await db.execute(
         select(Message)
-        .options(selectinload(Message.author), selectinload(Message.reactions))
+        .options(
+            selectinload(Message.author),
+            selectinload(Message.reactions),
+            selectinload(Message.reply_to).selectinload(Message.author),
+        )
         .where(Message.id == msg.id)
     )
     msg = loaded.scalar_one()
@@ -162,6 +200,58 @@ async def send_message(
     return resp
 
 
+@router.get("/search", response_model=MessageSearchResponse)
+async def search_channel_messages(
+    channel_id: uuid.UUID,
+    q: str = Query("", max_length=200),
+    author_id: uuid.UUID | None = Query(None),
+    before: datetime | None = Query(None),
+    after: datetime | None = Query(None),
+    has: str | None = Query(None, pattern="^(link|file|image)$"),
+    limit: int = Query(30, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    channel, _ = await _get_channel_and_member(channel_id, db, current_user)
+    stmt = (
+        select(Message)
+        .options(
+            selectinload(Message.author),
+            selectinload(Message.reactions),
+            selectinload(Message.reply_to).selectinload(Message.author),
+        )
+        .where(Message.channel_id == channel_id, Message.is_deleted == False)
+    )
+    q_clean = q.strip()
+    if q_clean:
+        stmt = stmt.where(Message.content.ilike(f"%{q_clean}%"))
+    if author_id:
+        stmt = stmt.where(Message.author_id == author_id)
+    if after:
+        stmt = stmt.where(Message.created_at > after)
+    if before:
+        stmt = stmt.where(Message.created_at < before)
+    if has == "link":
+        stmt = stmt.where(or_(
+            Message.content.ilike("%http://%"),
+            Message.content.ilike("%https://%"),
+        ))
+    elif has == "file":
+        stmt = stmt.where(Message.content.ilike("%/uploads/%"))
+    elif has == "image":
+        stmt = stmt.where(or_(
+            Message.content.ilike("%.png%"),
+            Message.content.ilike("%.jpg%"),
+            Message.content.ilike("%.jpeg%"),
+            Message.content.ilike("%.gif%"),
+            Message.content.ilike("%.webp%"),
+        ))
+    stmt = stmt.order_by(Message.created_at.desc()).limit(limit)
+    res = await db.execute(stmt)
+    rows = res.scalars().all()
+    return MessageSearchResponse(items=[_build_response(m, current_user.id) for m in rows])
+
+
 @router.patch("/{message_id}", response_model=MessageResponse)
 async def edit_message(
     channel_id: uuid.UUID,
@@ -186,7 +276,11 @@ async def edit_message(
     channel, _ = await _get_channel_and_member(channel_id, db, current_user)
     loaded = await db.execute(
         select(Message)
-        .options(selectinload(Message.author), selectinload(Message.reactions))
+        .options(
+            selectinload(Message.author),
+            selectinload(Message.reactions),
+            selectinload(Message.reply_to).selectinload(Message.author),
+        )
         .where(Message.id == msg.id)
     )
     msg = loaded.scalar_one()
@@ -213,7 +307,7 @@ async def delete_message(
         raise HTTPException(status_code=404, detail="Message not found")
 
     channel, member = await _get_channel_and_member(channel_id, db, current_user)
-    perms = await compute_permissions(channel.server_id, current_user.id, db)
+    perms = await compute_permissions(channel.server_id, current_user.id, db, channel_id=channel.id)
     if msg.author_id != current_user.id and not (perms & Permissions.MANAGE_MESSAGES):
         raise HTTPException(status_code=403, detail="Cannot delete this message")
 
@@ -236,6 +330,9 @@ async def add_reaction(
     current_user: User = Depends(get_current_active_user),
 ):
     channel, _ = await _get_channel_and_member(channel_id, db, current_user)
+    perms = await compute_permissions(channel.server_id, current_user.id, db, channel_id=channel.id)
+    if not (perms & Permissions.ADD_REACTIONS):
+        raise HTTPException(status_code=403, detail="Нет права добавлять реакции")
     result = await db.execute(
         select(MessageReaction).where(
             MessageReaction.message_id == message_id,

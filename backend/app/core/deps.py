@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.models.user import User
 from app.models.server import Server, ServerMember
 from app.models.role import Role, MemberRole, Permissions
+from app.models.channel_permission import ChannelRolePermission
 
 bearer_scheme = HTTPBearer(auto_error=False)
 _redis_pool: aioredis.Redis | None = None
@@ -97,9 +98,10 @@ async def compute_permissions(
     server_id: uuid.UUID,
     user_id: uuid.UUID,
     db: AsyncSession,
+    channel_id: uuid.UUID | None = None,
 ) -> int:
-    """Compute effective permission bitmask for a user on a server."""
-    # Check if owner
+    """Compute effective permission bitmask for a user on a server (optionally a specific channel)."""
+    # Check if owner — full admin, overrides everything
     owner_result = await db.execute(
         select(Server.owner_id).where(Server.id == server_id)
     )
@@ -107,7 +109,7 @@ async def compute_permissions(
     if owner_id == user_id:
         return Permissions.ADMIN
 
-    # Check base flat role
+    # Legacy flat role (from ServerMember.role). "admin" still means full permissions.
     member_result = await db.execute(
         select(ServerMember.role).where(
             ServerMember.server_id == server_id,
@@ -120,24 +122,55 @@ async def compute_permissions(
     if flat_role == "admin":
         return Permissions.ADMIN
 
-    # Collect role permissions
+    # Collect server-level role permissions
     perms_result = await db.execute(
-        select(Role.permissions, Role.is_everyone)
+        select(Role.id, Role.permissions, Role.is_everyone)
         .outerjoin(MemberRole, MemberRole.role_id == Role.id)
         .where(
             Role.server_id == server_id,
             (Role.is_everyone == True) | ((MemberRole.user_id == user_id) & (MemberRole.server_id == server_id))
         )
     )
+    user_role_ids: list[uuid.UUID] = []
+    everyone_role_id: uuid.UUID | None = None
     bitmap = 0
     any_role_found = False
-    for perms, is_everyone in perms_result.all():
+    for role_id, perms, is_everyone in perms_result.all():
         any_role_found = True
         bitmap |= perms or 0
+        if is_everyone:
+            everyone_role_id = role_id
+        else:
+            user_role_ids.append(role_id)
 
-    # If no roles exist on this server yet, fall back to sensible default
     if not any_role_found:
         bitmap = Permissions.DEFAULT
+
+    # Apply per-channel overrides (Discord-style)
+    if channel_id is not None:
+        relevant_role_ids = [rid for rid in [everyone_role_id, *user_role_ids] if rid is not None]
+        if relevant_role_ids:
+            ov_res = await db.execute(
+                select(ChannelRolePermission.role_id, ChannelRolePermission.allow, ChannelRolePermission.deny)
+                .where(
+                    ChannelRolePermission.channel_id == channel_id,
+                    ChannelRolePermission.role_id.in_(relevant_role_ids),
+                )
+            )
+            overrides = {rid: (allow or 0, deny or 0) for rid, allow, deny in ov_res.all()}
+            # 1. @everyone override first
+            if everyone_role_id and everyone_role_id in overrides:
+                a, d = overrides[everyone_role_id]
+                bitmap = (bitmap & ~d) | a
+            # 2. Accumulate user-role overrides, then apply as one step
+            accum_allow = 0
+            accum_deny = 0
+            for rid in user_role_ids:
+                if rid in overrides:
+                    a, d = overrides[rid]
+                    accum_allow |= a
+                    accum_deny |= d
+            bitmap = (bitmap & ~accum_deny) | accum_allow
 
     return bitmap
 

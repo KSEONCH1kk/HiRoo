@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, ForeignKey, Boolean, DateTime, func, Text
+from typing import Any
+from sqlalchemy import String, ForeignKey, Boolean, DateTime, func, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
 
 
@@ -20,6 +21,12 @@ class Message(Base):
     reply_to_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )
+    webhook_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("webhooks.id", ondelete="SET NULL"), nullable=True
+    )
+    webhook_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    webhook_avatar_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    embeds: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

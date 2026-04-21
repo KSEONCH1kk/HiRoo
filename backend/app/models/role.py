@@ -24,6 +24,9 @@ class Permissions:
     SPEAK_VOICE = 1 << 13
     VIDEO = 1 << 14
     SCREENSHARE = 1 << 15
+    MOVE_MEMBERS = 1 << 16
+    MUTE_MEMBERS = 1 << 17
+    DEAFEN_MEMBERS = 1 << 18
 
     DEFAULT = (
         SEND_MESSAGES | READ_MESSAGES | ATTACH_FILES | ADD_REACTIONS

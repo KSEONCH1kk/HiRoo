@@ -4,6 +4,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { useCallStore } from "@/store/callStore";
 import { getSocket } from "@/lib/socket";
+import { playCall, stopCall } from "@/lib/sounds";
 
 export function IncomingCall() {
   const { incoming, setIncoming, startCall } = useCallStore();
@@ -26,19 +27,26 @@ export function IncomingCall() {
     return () => { s.off("voice_ring", onRing); s.off("voice_ring_cancel", onCancel); };
   }, [setIncoming]);
 
+  useEffect(() => {
+    if (!incoming) { stopCall(); return; }
+    playCall();
+    return () => { stopCall(); };
+  }, [incoming?.roomId]);
+
   if (!incoming) return null;
 
   const name = incoming.fromDisplayName ?? incoming.fromUsername;
 
   const accept = () => {
+    stopCall();
     startCall({
       roomId: incoming.roomId,
       title: name,
-      ringUserId: incoming.fromUserId,
       video: incoming.video,
     });
   };
   const decline = () => {
+    stopCall();
     getSocket().emit("voice_ring_decline", { target_user_id: incoming.fromUserId });
     setIncoming(null);
   };

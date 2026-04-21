@@ -2,6 +2,7 @@ import uuid
 import aiofiles
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -15,6 +16,7 @@ from app.core.security import generate_invite_code
 from app.core.rate_limit import limiter, LIMIT_API
 from app.models.user import User
 from app.models.server import Server, ServerMember
+from app.models.ban import ServerBan
 from app.schemas.server import (
     ServerCreate, ServerUpdate, ServerResponse,
     ServerMemberResponse, ServerMemberUpdate, InviteResponse,
@@ -114,6 +116,12 @@ async def join_server(
 
     if server.invite_expires_at and server.invite_expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=410, detail="Invite link has expired")
+
+    ban_res = await db.execute(
+        select(ServerBan).where(ServerBan.server_id == server.id, ServerBan.user_id == current_user.id)
+    )
+    if ban_res.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Вы забанены на этом сервере")
 
     existing = await db.execute(
         select(ServerMember).where(
@@ -280,6 +288,104 @@ async def kick_member(
         "event": "member_kick",
         "data": {"server_id": str(server_id), "user_id": str(user_id)},
     })
+
+
+# ── Bans ─────────────────────────────────────────────────────
+
+class BanCreate(BaseModel):
+    user_id: uuid.UUID
+    reason: str | None = Field(None, max_length=500)
+
+
+class BanResponse(BaseModel):
+    user_id: uuid.UUID
+    banned_by: uuid.UUID | None
+    reason: str | None
+    created_at: datetime
+
+
+@router.get("/{server_id}/bans", response_model=list[BanResponse])
+async def list_bans(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: ServerMember = Depends(require_permission(Permissions.BAN_MEMBERS)),
+):
+    res = await db.execute(
+        select(ServerBan).where(ServerBan.server_id == server_id).order_by(ServerBan.created_at.desc())
+    )
+    return [
+        BanResponse(user_id=b.user_id, banned_by=b.banned_by, reason=b.reason, created_at=b.created_at)
+        for b in res.scalars().all()
+    ]
+
+
+@router.post("/{server_id}/bans", response_model=BanResponse, status_code=201)
+async def create_ban(
+    server_id: uuid.UUID,
+    body: BanCreate,
+    db: AsyncSession = Depends(get_db),
+    admin: ServerMember = Depends(require_permission(Permissions.BAN_MEMBERS)),
+):
+    if admin.user_id == body.user_id:
+        raise HTTPException(status_code=400, detail="Нельзя забанить самого себя")
+    srv_res = await db.execute(select(Server).where(Server.id == server_id))
+    srv = srv_res.scalar_one_or_none()
+    if not srv:
+        raise HTTPException(status_code=404, detail="Сервер не найден")
+    if srv.owner_id == body.user_id:
+        raise HTTPException(status_code=400, detail="Нельзя забанить владельца сервера")
+
+    # Remove member record if present
+    mem_res = await db.execute(
+        select(ServerMember).where(
+            ServerMember.server_id == server_id, ServerMember.user_id == body.user_id,
+        )
+    )
+    existing_member = mem_res.scalar_one_or_none()
+    if existing_member:
+        await db.delete(existing_member)
+
+    # Upsert ban record
+    ban_res = await db.execute(
+        select(ServerBan).where(ServerBan.server_id == server_id, ServerBan.user_id == body.user_id)
+    )
+    ban = ban_res.scalar_one_or_none()
+    if ban:
+        ban.reason = body.reason
+        ban.banned_by = admin.user_id
+    else:
+        ban = ServerBan(
+            server_id=server_id, user_id=body.user_id,
+            banned_by=admin.user_id, reason=body.reason,
+        )
+        db.add(ban)
+    await db.flush()
+
+    await manager.broadcast_to_server(str(server_id), {
+        "event": "member_banned",
+        "data": {"server_id": str(server_id), "user_id": str(body.user_id)},
+    })
+    return BanResponse(user_id=ban.user_id, banned_by=ban.banned_by, reason=ban.reason, created_at=ban.created_at)
+
+
+@router.delete("/{server_id}/bans/{user_id}", status_code=204)
+async def remove_ban(
+    server_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: ServerMember = Depends(require_permission(Permissions.BAN_MEMBERS)),
+):
+    res = await db.execute(
+        select(ServerBan).where(ServerBan.server_id == server_id, ServerBan.user_id == user_id)
+    )
+    ban = res.scalar_one_or_none()
+    if ban:
+        await db.delete(ban)
+        await db.flush()
+        await manager.broadcast_to_server(str(server_id), {
+            "event": "member_unbanned",
+            "data": {"server_id": str(server_id), "user_id": str(user_id)},
+        })
 
 
 ALLOWED_ICON_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}

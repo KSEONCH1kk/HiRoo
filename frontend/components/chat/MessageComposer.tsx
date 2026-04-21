@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { getSocket } from "@/lib/socket";
 import { uploadsApi, type UploadResult } from "@/lib/api";
 import { EmojiPicker } from "@/components/ui/EmojiPicker";
@@ -13,7 +13,18 @@ interface Props {
   channelId?: string;
   serverId?: string;
   dmId?: string;
-  onSend?: (content: string) => Promise<void>;
+  onSend?: (content: string, replyToId?: string | null) => Promise<void>;
+}
+
+const AUTO_PING_KEY = "hiroo-reply-ping";
+function readAutoPing(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  const v = localStorage.getItem(AUTO_PING_KEY);
+  return v !== "off";
+}
+function writeAutoPing(on: boolean) {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(AUTO_PING_KEY, on ? "on" : "off");
 }
 
 interface Pending {
@@ -25,11 +36,11 @@ interface Pending {
   error?: string;
 }
 
-const MAX_BYTES = 25 * 1024 * 1024;
+const MAX_BYTES = 100 * 1024 * 1024;
 
 function genId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return genId();
+    return crypto.randomUUID();
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -51,6 +62,17 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
   const { user } = useAuthStore();
   const { members } = useServerRoles(serverId ?? null);
   const [mention, setMention] = useState<{ query: string; start: number; end: number } | null>(null);
+  const roomKey = channelId ?? dmId ?? "";
+  const replyingTo = useChatStore((s) => (roomKey ? s.replyingTo[roomKey] : null)) ?? null;
+  const cancelReplyStore = useChatStore((s) => s.cancelReply);
+  const [autoPing, setAutoPing] = useState<boolean>(true);
+  useEffect(() => { setAutoPing(readAutoPing()); }, []);
+  const toggleAutoPing = () => {
+    setAutoPing((v) => { const next = !v; writeAutoPing(next); return next; });
+  };
+  useEffect(() => {
+    if (replyingTo) textareaRef.current?.focus();
+  }, [replyingTo?.messageId]);
 
   const insertEmoji = (emoji: string) => {
     const el = textareaRef.current;
@@ -117,7 +139,7 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
     const arr = Array.from(files);
     for (const file of arr) {
       if (file.size > MAX_BYTES) {
-        const err: Pending = { id: genId(), file, progress: 0, error: `Файл ${file.name} больше 25 МБ` };
+        const err: Pending = { id: genId(), file, progress: 0, error: `Файл ${file.name} больше 100 МБ` };
         setAttachments((cur) => [...cur, err]);
         continue;
       }
@@ -166,14 +188,21 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
     if (sending || hasPendingUploads || !hasContent) return;
     setSending(true);
     try {
-      const content = buildMessage();
+      let content = buildMessage();
+      const reply = replyingTo;
+      if (reply && autoPing && reply.username) {
+        const escaped = reply.username.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const alreadyMentioned = new RegExp(`(^|[^\\w])@${escaped}\\b`, "i").test(content);
+        if (!alreadyMentioned) content = `@${reply.username} ${content}`;
+      }
       setValue("");
       attachments.forEach((a) => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl); });
       setAttachments([]);
       if (typingTimer.current) clearTimeout(typingTimer.current);
       isTyping.current = false;
       emitTyping(false);
-      await onSend(content);
+      if (roomKey && reply) cancelReplyStore(roomKey);
+      await onSend(content, reply?.messageId ?? null);
     } finally {
       setSending(false);
     }
@@ -188,6 +217,41 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
     >
+      {replyingTo && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          background: "var(--bg-2)", border: "1px solid var(--line)",
+          borderRadius: "10px 10px 0 0", padding: "6px 12px",
+          marginBottom: -1, borderBottom: "none",
+        }}>
+          <i className="fa-solid fa-reply" style={{ color: "var(--accent)", fontSize: 11 }} />
+          <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: "var(--text-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            Ответ <strong style={{ color: "var(--text-1)", fontWeight: 600 }}>{replyingTo.displayName || replyingTo.username}</strong>
+            <span style={{ marginLeft: 6, color: "var(--text-3)" }}>{replyingTo.contentPreview}</span>
+          </div>
+          <button
+            onClick={toggleAutoPing}
+            title={autoPing ? "Убрать @упоминание" : "Вернуть @упоминание"}
+            style={{
+              height: 22, padding: "0 8px", borderRadius: 6, border: "none", cursor: "pointer",
+              background: autoPing ? "var(--accent)" : "var(--bg-3)",
+              color: autoPing ? "#fff" : "var(--text-2)",
+              fontSize: 11, fontWeight: 600, fontFamily: "Geist Mono",
+              display: "inline-flex", alignItems: "center", gap: 4,
+            }}
+          >
+            <i className="fa-solid fa-at" style={{ fontSize: 10 }} />
+            {autoPing ? "ON" : "OFF"}
+          </button>
+          <button
+            onClick={() => roomKey && cancelReplyStore(roomKey)}
+            title="Отменить ответ"
+            style={{ width: 22, height: 22, borderRadius: 6, border: "none", cursor: "pointer", background: "transparent", color: "var(--text-2)" }}
+          >
+            <i className="fa-solid fa-xmark" style={{ fontSize: 11 }} />
+          </button>
+        </div>
+      )}
       {attachments.length > 0 && (
         <div style={{
           background: "var(--bg-2)", borderRadius: 12, border: "1px solid var(--line)",
@@ -334,7 +398,7 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
       </div>
       <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono", marginTop: 4, display: "flex", justifyContent: "space-between" }}>
         <span>enter — отправить · shift+enter — перенос · ↑ — редактировать последнее · перетащите файл, чтобы прикрепить</span>
-        {attachments.length > 0 && <span>{attachments.length} файл(ов) · макс. 25 МБ</span>}
+        {attachments.length > 0 && <span>{attachments.length} файл(ов) · макс. 100 МБ</span>}
       </div>
     </div>
   );

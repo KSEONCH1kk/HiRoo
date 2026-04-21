@@ -12,16 +12,19 @@ import { ServerRail } from "@/components/layout/ServerRail";
 import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { UserTray } from "@/components/layout/UserTray";
 import { IncomingCall } from "@/components/modals/IncomingCall";
+import { ImageViewer } from "@/components/chat/ImageViewer";
 import { CommandPalette } from "@/components/modals/CommandPalette";
 import { ProfilePopout } from "@/components/modals/ProfilePopout";
 import { VoiceCall } from "@/components/voice/VoiceCall";
 import { useCallStore } from "@/store/callStore";
+import { usePaletteStore } from "@/store/paletteStore";
 
 const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const { user } = useAuthStore();
-  const { mode, setMode, cmdOpen, setCmdOpen } = useUIStore();
+  const { mode, setMode } = useUIStore();
+  const { open: cmdOpen, setOpen: setCmdOpen } = usePaletteStore();
   const { active: activeCall, endCall, setMaximized } = useCallStore();
   const { servers, setServers, channels, setChannels, activeServerId, setActiveServer, activeChannelId, setActiveChannel } = useServerStore();
   const inVoice = !!activeCall;
@@ -165,15 +168,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <IncomingCall />
+      <ImageViewer />
       <CommandPalette show={cmdOpen} onClose={() => setCmdOpen(false)} />
       <ProfilePopout />
 
-      {/* Quick helpers */}
-      <div style={{ position: "fixed", left: 88, bottom: 14, zIndex: 30, display: "flex", gap: 8 }}>
-        <div onClick={() => setCmdOpen(true)} style={{ padding: "6px 10px", borderRadius: 8, background: "rgba(20,22,30,0.8)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.08)", fontSize: 11.5, color: "var(--text-2)", fontFamily: "Geist Mono", cursor: "pointer" }}>
-          ⌘K · поиск
-        </div>
-      </div>
     </div>
   );
 }

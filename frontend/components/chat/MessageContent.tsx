@@ -1,9 +1,13 @@
 "use client";
-import { useAuthStore } from "@/store/authStore";
-import { useUIStore } from "@/store/uiStore";
-import { useServerRoles } from "@/hooks/useServerRoles";
-import { useServerStore } from "@/store/serverStore";
-import type { UserPublic } from "@/types";
+import { AudioPlayer } from "./AudioPlayer";
+import { VideoPlayer } from "./VideoPlayer";
+import { LinkEmbed } from "./LinkEmbed";
+import { ViewerImage } from "./ViewerImage";
+import { YouTubeEmbed, parseYouTubeId } from "./YouTubeEmbed";
+import { CodeBlock } from "./CodeBlock";
+import { Markdown } from "./Markdown";
+import { EmbedCard } from "./EmbedCard";
+import type { Embed } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -11,7 +15,7 @@ const IMG_EXT = /\.(png|jpe?g|gif|webp|avif)(\?.*)?$/i;
 const VIDEO_EXT = /\.(mp4|webm|mov)(\?.*)?$/i;
 const AUDIO_EXT = /\.(mp3|ogg|wav|m4a)(\?.*)?$/i;
 
-const MENTION_RE = /(?:^|(?<=\s))@([a-zA-Z0-9_]+|everyone|all)\b/g;
+const CODE_BLOCK_RE = /```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g;
 
 function absolutize(url: string): string {
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
@@ -30,12 +34,22 @@ function isAttachmentUrl(line: string): boolean {
 
 function filenameFromUrl(url: string): string {
   const parts = url.split("/");
-  return decodeURIComponent(parts[parts.length - 1] ?? "file");
+  const raw = parts[parts.length - 1] ?? "file";
+  try { return decodeURIComponent(raw.split("?")[0]); } catch { return raw; }
 }
 
-interface Props { content: string; }
+function isSameOrigin(u: string): boolean {
+  try {
+    if (!API_BASE) return false;
+    const parsed = new URL(u);
+    const base = new URL(API_BASE);
+    return parsed.host === base.host;
+  } catch { return false; }
+}
 
-export function MessageContent({ content }: Props) {
+interface Props { content: string; embeds?: Embed[] | null; }
+
+export function MessageContent({ content, embeds }: Props) {
   const lines = content.split("\n");
   const textLines: string[] = [];
   const attachments: string[] = [];
@@ -46,10 +60,21 @@ export function MessageContent({ content }: Props) {
   }
 
   const text = textLines.join("\n").trim();
+  const segments = splitByCodeBlocks(text);
+  const externalUrls = collectExternalUrls(text);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {text && <RichText text={text} />}
+      {segments.map((seg, i) =>
+        seg.type === "code"
+          ? <CodeBlock key={`cb-${i}`} code={seg.content} lang={seg.lang} />
+          : seg.content.trim() ? <Markdown key={`t-${i}`} text={seg.content} /> : null
+      )}
+      {embeds && embeds.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {embeds.map((e, i) => <EmbedCard key={`emb-${i}`} embed={e} />)}
+        </div>
+      )}
       {attachments.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {attachments.map((url, i) => (
@@ -57,90 +82,64 @@ export function MessageContent({ content }: Props) {
           ))}
         </div>
       )}
+      {externalUrls.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
+          {externalUrls.slice(0, 3).map((u, i) => <ExternalUrlBlock key={`e-${i}-${u}`} url={u} />)}
+        </div>
+      )}
     </div>
   );
 }
 
-function RichText({ text }: { text: string }) {
-  const { user } = useAuthStore();
-  const { setProfileUser } = useUIStore();
-  const { activeServerId } = useServerStore();
-  const { members } = useServerRoles(activeServerId);
+interface Segment { type: "text" | "code"; content: string; lang?: string; }
 
-  const membersByUsername = new Map<string, UserPublic>();
-  for (const m of members) membersByUsername.set(m.user.username.toLowerCase(), m.user);
-
-  const parts: React.ReactNode[] = [];
+function splitByCodeBlocks(text: string): Segment[] {
+  const segs: Segment[] = [];
+  const re = new RegExp(CODE_BLOCK_RE.source, CODE_BLOCK_RE.flags);
   let last = 0;
-  let match: RegExpExecArray | null;
-  const re = new RegExp(MENTION_RE.source, MENTION_RE.flags);
-
-  while ((match = re.exec(text)) !== null) {
-    const start = match.index;
-    const end = start + match[0].length;
-    if (start > last) parts.push(text.slice(last, start));
-
-    const name = match[1];
-    const lower = name.toLowerCase();
-    const isSpecial = lower === "everyone" || lower === "all";
-    const target = isSpecial ? null : membersByUsername.get(lower);
-    const isMe = !isSpecial && user?.username.toLowerCase() === lower;
-
-    parts.push(
-      <span
-        key={`m-${start}`}
-        onClick={target ? (e) => { e.stopPropagation(); setProfileUser(target); } : undefined}
-        title={isSpecial ? "Все участники" : undefined}
-        style={{
-          display: "inline-block",
-          padding: "1px 5px",
-          margin: "0 1px",
-          borderRadius: 4,
-          background: isMe || isSpecial ? "rgba(124,92,255,0.3)" : "rgba(124,92,255,0.14)",
-          color: "var(--accent)",
-          fontWeight: 500,
-          cursor: target ? "pointer" : "default",
-        }}
-      >
-        @{name}
-      </span>,
-    );
-    last = end;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) segs.push({ type: "text", content: text.slice(last, m.index) });
+    segs.push({ type: "code", content: m[2].replace(/\n$/, ""), lang: m[1] || undefined });
+    last = m.index + m[0].length;
   }
-  if (last < text.length) parts.push(text.slice(last));
+  if (last < text.length) segs.push({ type: "text", content: text.slice(last) });
+  if (segs.length === 0) segs.push({ type: "text", content: text });
+  return segs;
+}
 
-  return (
-    <div style={{ fontSize: 14.5, color: "var(--text-0)", lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-      {parts}
-    </div>
-  );
+function collectExternalUrls(text: string): string[] {
+  // Strip code blocks and inline code before scanning URLs
+  const withoutCode = text
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`[^`\n]+`/g, "");
+  const out: string[] = [];
+  const re = /(https?:\/\/[^\s<>"]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(withoutCode)) !== null) {
+    let u = m[1].replace(/[.,;:!?)]+$/, "");
+    if (isSameOrigin(u) && u.includes("/uploads/")) continue;
+    out.push(u);
+  }
+  return Array.from(new Set(out));
+}
+
+function ExternalUrlBlock({ url }: { url: string }) {
+  const yt = parseYouTubeId(url);
+  if (yt) return <YouTubeEmbed videoId={yt} originalUrl={url} />;
+  if (IMG_EXT.test(url)) return <ViewerImage src={url} filename={filenameFromUrl(url)} />;
+  if (VIDEO_EXT.test(url)) return <VideoPlayer src={url} filename={filenameFromUrl(url)} />;
+  if (AUDIO_EXT.test(url)) return <AudioPlayer src={url} filename={filenameFromUrl(url)} />;
+  return <LinkEmbed url={url} />;
 }
 
 function Attachment({ url }: { url: string }) {
   const full = absolutize(url);
   const name = filenameFromUrl(url);
 
-  if (IMG_EXT.test(url)) {
-    return (
-      <a href={full} target="_blank" rel="noreferrer" style={{ display: "inline-block", maxWidth: 420 }}>
-        <img
-          src={full}
-          alt={name}
-          style={{ maxWidth: "100%", maxHeight: 360, borderRadius: 8, border: "1px solid var(--line)", display: "block" }}
-        />
-      </a>
-    );
-  }
-
-  if (VIDEO_EXT.test(url)) {
-    return (
-      <video src={full} controls style={{ maxWidth: 420, maxHeight: 360, borderRadius: 8, border: "1px solid var(--line)" }} />
-    );
-  }
-
-  if (AUDIO_EXT.test(url)) {
-    return <audio src={full} controls style={{ maxWidth: 420 }} />;
-  }
+  if (IMG_EXT.test(url)) return <ViewerImage src={full} filename={name} />;
+  if (VIDEO_EXT.test(url)) return <VideoPlayer src={full} filename={name} />;
+  if (AUDIO_EXT.test(url)) return <AudioPlayer src={full} filename={name} />;
 
   return (
     <a

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from pydantic import BaseModel, Field
 
-from app.core.deps import get_db, get_current_active_user, require_server_admin, require_permission
+from app.core.deps import get_db, get_current_active_user, require_server_admin, require_permission, require_server_member
 from app.models.user import User
 from app.models.role import Role, MemberRole, Permissions
 from app.models.server import ServerMember
@@ -51,7 +51,7 @@ class MemberRoleUpdate(BaseModel):
 async def list_roles(
     server_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: ServerMember = Depends(require_permission(Permissions.MANAGE_ROLES)),
+    _: ServerMember = Depends(require_server_member),
 ):
     result = await db.execute(
         select(Role).where(Role.server_id == server_id).order_by(Role.position.desc())

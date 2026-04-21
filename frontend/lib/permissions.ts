@@ -15,6 +15,9 @@ export const PERMISSIONS = {
   SPEAK_VOICE: 1 << 13,
   VIDEO: 1 << 14,
   SCREENSHARE: 1 << 15,
+  MOVE_MEMBERS: 1 << 16,
+  MUTE_MEMBERS: 1 << 17,
+  DEAFEN_MEMBERS: 1 << 18,
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSIONS;
@@ -54,6 +57,9 @@ export const PERMISSION_GROUPS: { title: string; items: { key: PermissionKey; la
       { key: "SPEAK_VOICE", label: "Говорить в голосовых", hint: "" },
       { key: "VIDEO", label: "Видео", hint: "Включать камеру" },
       { key: "SCREENSHARE", label: "Демонстрация экрана", hint: "" },
+      { key: "MOVE_MEMBERS", label: "Перемещать участников", hint: "Между голосовыми каналами" },
+      { key: "MUTE_MEMBERS", label: "Мьютить участников", hint: "В голосовом" },
+      { key: "DEAFEN_MEMBERS", label: "Заглушать участников", hint: "Выключать звук в голосовом" },
     ],
   },
 ];

@@ -9,6 +9,7 @@ import { serversApi, dmsApi } from "@/lib/api";
 import { useServerStore } from "@/store/serverStore";
 import { useUnreadStore } from "@/store/unreadStore";
 import { useAuthStore } from "@/store/authStore";
+import { dmTitle } from "@/lib/dm";
 import type { Server, DirectMessage } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -16,6 +17,12 @@ function resolveIcon(url?: string | null): string | undefined {
   if (!url) return undefined;
   if (url.startsWith("http") || url.startsWith("data:")) return url;
   return `${API_BASE}${url}`;
+}
+
+function hueFromId(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h % 360;
 }
 
 interface ServerRailProps {
@@ -139,7 +146,8 @@ export function ServerRail({ servers, activeServerId, activeMode, onPickServer, 
       <div style={{ width: 32, height: 1, background: "var(--line-strong)", margin: "4px 0" }} />
 
       {unreadDms.map(({ dm, other, count }) => {
-        const name = other?.user.display_name ?? other?.user.username ?? "?";
+        const title = dmTitle(dm, user?.id ?? null);
+        const groupIconUrl = dm.icon_url ? resolveIcon(dm.icon_url) : undefined;
         return (
           <div key={`dm-${dm.id}`} style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", height: 52 }}>
             <div style={{
@@ -148,7 +156,7 @@ export function ServerRail({ servers, activeServerId, activeMode, onPickServer, 
             }} />
             <button
               onClick={() => router.push(`/dms/${dm.id}`)}
-              title={name}
+              title={title}
               style={{
                 width: 44, height: 44, borderRadius: 22, border: "none", cursor: "pointer",
                 background: "var(--bg-3)", padding: 0, overflow: "hidden",
@@ -158,7 +166,22 @@ export function ServerRail({ servers, activeServerId, activeMode, onPickServer, 
               onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.borderRadius = "14px")}
               onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.borderRadius = "22px")}
             >
-              <Avatar name={other?.user.username ?? "?"} size={44} shape="circle" avatarUrl={other?.user.avatar_url} status={other?.user.status} />
+              {dm.is_group ? (
+                groupIconUrl ? (
+                  <img src={groupIconUrl} alt={title} style={{ width: 44, height: 44, objectFit: "cover" }} />
+                ) : (
+                  <div style={{
+                    width: 44, height: 44,
+                    background: "linear-gradient(135deg, oklch(55% 0.17 268), oklch(40% 0.12 300))",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#fff",
+                  }}>
+                    <i className="fa-solid fa-users" style={{ fontSize: 17 }} />
+                  </div>
+                )
+              ) : (
+                <Avatar name={other?.user.username ?? "?"} size={44} shape="circle" avatarUrl={other?.user.avatar_url} status={other?.user.status} />
+              )}
             </button>
             <div style={{
               position: "absolute", left: "58%", bottom: 2,
@@ -188,7 +211,7 @@ export function ServerRail({ servers, activeServerId, activeMode, onPickServer, 
             activeMode === "server" && activeServerId === s.id,
             mentionsByServer[s.id] || undefined,
             () => onPickServer(s.id),
-            Math.floor(Math.random() * 360),
+            hueFromId(s.id),
           )}
         </div>
       ))}

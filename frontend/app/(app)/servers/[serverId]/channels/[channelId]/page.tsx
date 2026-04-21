@@ -1,9 +1,10 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useServerStore } from "@/store/serverStore";
 import { useUIStore } from "@/store/uiStore";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageComposer } from "@/components/chat/MessageComposer";
+import { MessageSearchModal } from "@/components/chat/MessageSearchModal";
 import { messagesApi } from "@/lib/api";
 import { useChatStore } from "@/store/chatStore";
 import { useUnreadStore } from "@/store/unreadStore";
@@ -16,9 +17,10 @@ export default function ChannelPage({ params }: { params: Params }) {
   const { setActiveServer, setActiveChannel, channels } = useServerStore();
   const { mode, setMode, membersOpen } = useUIStore();
   const { addMessage } = useChatStore();
+  const [searchOpen, setSearchOpen] = useState(false);
 
-  const sendMessage = async (content: string) => {
-    const msg = await messagesApi.send(channelId, content);
+  const sendMessage = async (content: string, replyToId?: string | null) => {
+    const msg = await messagesApi.send(channelId, content, replyToId ?? undefined);
     addMessage(msg);
   };
 
@@ -65,6 +67,13 @@ export default function ChannelPage({ params }: { params: Params }) {
           )}
           <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
             <button
+              onClick={() => setSearchOpen(true)}
+              title="Поиск сообщений"
+              style={{ width: 32, height: 32, border: "none", background: "transparent", borderRadius: 6, cursor: "pointer", color: "var(--text-2)", display: "flex", alignItems: "center", justifyContent: "center" }}
+            >
+              <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 13 }} />
+            </button>
+            <button
               onClick={() => useUIStore.getState().setMembersOpen(!membersOpen)}
               style={{ width: 32, height: 32, border: "none", background: membersOpen ? "var(--bg-active)" : "transparent", borderRadius: 6, cursor: "pointer", color: membersOpen ? "var(--text-0)" : "var(--text-2)", display: "flex", alignItems: "center", justifyContent: "center" }}
             >
@@ -78,6 +87,12 @@ export default function ChannelPage({ params }: { params: Params }) {
       </div>
 
       {membersOpen && <MembersPanel serverId={serverId} />}
+      {searchOpen && (
+        <MessageSearchModal
+          ctx={{ type: "channel", channelId, serverId }}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
     </div>
   );
 }

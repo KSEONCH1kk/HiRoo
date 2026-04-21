@@ -23,6 +23,8 @@ class DMResponse(BaseModel):
     id: uuid.UUID
     is_group: bool
     name: str | None
+    icon_url: str | None = None
+    owner_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
     participants: list[DMParticipantResponse] = []
