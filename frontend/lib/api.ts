@@ -113,6 +113,26 @@ export const qrAuthApi = {
     api.post<{ ok: boolean; message: string }>(`/api/auth/qr/approve`, { code }).then((r) => r.data),
 };
 
+// ── Soundboard ───────────────────────────────────────────────
+import type { SoundboardSound } from "@/types";
+export const soundboardApi = {
+  listServer: (serverId: string) =>
+    api.get<SoundboardSound[]>(`/api/servers/${serverId}/sounds`).then((r) => r.data),
+  listMine: () =>
+    api.get<SoundboardSound[]>(`/api/me/sounds`).then((r) => r.data),
+  upload: (serverId: string, file: File, name: string, emoji?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("name", name);
+    if (emoji) form.append("emoji", emoji);
+    return api.post<SoundboardSound>(`/api/servers/${serverId}/sounds`, form).then((r) => r.data);
+  },
+  update: (serverId: string, soundId: string, data: { name?: string; emoji?: string }) =>
+    api.patch<SoundboardSound>(`/api/servers/${serverId}/sounds/${soundId}`, data).then((r) => r.data),
+  delete: (serverId: string, soundId: string) =>
+    api.delete(`/api/servers/${serverId}/sounds/${soundId}`),
+};
+
 // ── Users ────────────────────────────────────────────────────
 export const usersApi = {
   get: (id: string) => api.get<UserPublic>(`/api/users/${id}`).then((r) => r.data),
@@ -154,6 +174,7 @@ export const serversApi = {
   create: (data: { name: string; description?: string }) =>
     api.post<Server>("/api/servers", data).then((r) => r.data),
   get: (id: string) => api.get<Server>(`/api/servers/${id}`).then((r) => r.data),
+  preview: (id: string) => api.get<Server>(`/api/servers/${id}/preview`).then((r) => r.data),
   update: (id: string, data: Partial<Server>) =>
     api.patch<Server>(`/api/servers/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/api/servers/${id}`),

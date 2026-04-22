@@ -27,10 +27,15 @@ class Permissions:
     MOVE_MEMBERS = 1 << 16
     MUTE_MEMBERS = 1 << 17
     DEAFEN_MEMBERS = 1 << 18
+    # Soundboard
+    USE_SOUNDBOARD = 1 << 19      # trigger sounds in a voice room
+    UPLOAD_SOUNDBOARD = 1 << 20   # add new sounds to the server
+    MANAGE_SOUNDBOARD = 1 << 21   # delete / edit any sound
 
     DEFAULT = (
         SEND_MESSAGES | READ_MESSAGES | ATTACH_FILES | ADD_REACTIONS
         | CONNECT_VOICE | SPEAK_VOICE | VIDEO | CREATE_INVITE
+        | USE_SOUNDBOARD
     )
     ADMIN = (1 << 32) - 1
 

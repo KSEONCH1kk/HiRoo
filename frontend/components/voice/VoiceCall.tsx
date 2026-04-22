@@ -8,6 +8,9 @@ import { useCallStore } from "@/store/callStore";
 import { usersApi } from "@/lib/api";
 import { playCall, stopCall } from "@/lib/sounds";
 import { ScreenQualityPopover } from "@/components/voice/ScreenQualityPopover";
+import { SoundboardModal } from "@/components/voice/SoundboardModal";
+import { useSoundboardStore } from "@/store/soundboardStore";
+import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
 import type { UserPublic } from "@/types";
 
 export function VoiceCall() {
@@ -17,6 +20,7 @@ export function VoiceCall() {
   const joinedRef = useRef<string | null>(null);
   const [ringing, setRinging] = useState<boolean>(false);
   const [qualityOpen, setQualityOpen] = useState(false);
+  const [soundboardOpen, setSoundboardOpen] = useState(false);
 
   const handleLeave = async () => {
     if (ringing && active?.ringUserIds) {
@@ -89,6 +93,26 @@ export function VoiceCall() {
     if (ringing) playCall(); else stopCall();
     return () => { stopCall(); };
   }, [ringing]);
+
+  // Receive remote soundboard plays and play them locally unless we've
+  // muted that user or we're deafened.
+  useEffect(() => {
+    const sock = getSocket();
+    const handler = (d: any) => {
+      try {
+        if (!active || !d || d.room_id !== active.roomId) return;
+        if (voice.isDeafened) return;
+        const fromId = String(d.from_user_id);
+        if (useSoundboardStore.getState().isMuted(fromId)) return;
+        const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
+        const url = String(d.url || "").startsWith("http") ? d.url : `${apiBase}${d.url}`;
+        const audio = new Audio(url);
+        audio.play().catch(() => {});
+      } catch {}
+    };
+    sock.on("soundboard_play_remote", handler);
+    return () => { sock.off("soundboard_play_remote", handler); };
+  }, [active?.roomId, voice.isDeafened]);
 
   // Fetch real user profiles for all voice participants
   const identities = [voice.me?.identity, ...voice.remotes.map((r) => r.identity)].filter(Boolean) as string[];
@@ -183,8 +207,12 @@ export function VoiceCall() {
           {qualityOpen && <ScreenQualityPopover onClose={() => setQualityOpen(false)} />}
         </div>
         <CircleBtn icon={voice.isDeafened ? "fa-volume-xmark" : "fa-headphones"} danger={voice.isDeafened} onClick={voice.toggleDeafen} title="Звук" />
+        <CircleBtn icon="fa-music" active={soundboardOpen} onClick={() => setSoundboardOpen(true)} title="Звуковая панель" />
         <div style={{ width: 1, height: 24, background: "var(--line-strong)", margin: "0 2px" }} />
         <CircleBtn icon="fa-phone-slash" danger onClick={handleLeave} title="Отключиться" />
+      </div>
+      {soundboardOpen && active?.roomId && (
+        <SoundboardModal roomId={active.roomId} onClose={() => setSoundboardOpen(false)} />
       </div>
       <div style={{ height: 84 }} />
     </div>
@@ -256,6 +284,9 @@ function Tile({ p, self, profile }: { p: VoiceParticipant; self?: boolean; profi
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
+  const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);
+  const sbMuted = useSoundboardStore((s) => s.mutedUserIds.includes(p.identity));
+  const toggleSbMute = useSoundboardStore((s) => s.toggleMuted);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -306,6 +337,7 @@ function Tile({ p, self, profile }: { p: VoiceParticipant; self?: boolean; profi
     <div
       ref={containerRef}
       onDoubleClick={video ? toggleFullscreen : undefined}
+      onContextMenu={self ? undefined : (e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}
       style={expanded ? expandedStyle : baseStyle}
     >
       {video ? (
@@ -351,9 +383,31 @@ function Tile({ p, self, profile }: { p: VoiceParticipant; self?: boolean; profi
         zIndex: 2,
       }}>
         {p.isMuted && <i className="fa-solid fa-microphone-slash" style={{ fontSize: 10, color: "var(--danger)" }} />}
+        {sbMuted && (
+          <i
+            className="fa-solid fa-volume-xmark"
+            title="Звуковая панель этого пользователя заглушена"
+            style={{ fontSize: 10, color: "var(--danger)" }}
+          />
+        )}
         {displayName}
         {self && <span style={{ fontSize: 10, opacity: 0.7, fontFamily: "Geist Mono" }}>· вы</span>}
       </div>
+      {ctx && (
+        <ContextMenu
+          x={ctx.x}
+          y={ctx.y}
+          onClose={() => setCtx(null)}
+          items={[
+            {
+              icon: sbMuted ? "fa-volume-high" : "fa-volume-xmark",
+              label: sbMuted ? "Разрешить звуковую панель" : "Заглушить звуковую панель",
+              onClick: () => toggleSbMute(p.identity),
+              danger: !sbMuted,
+            } as MenuItem,
+          ]}
+        />
+      )}
     </div>
   );
 }

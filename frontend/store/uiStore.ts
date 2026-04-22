@@ -12,6 +12,8 @@ interface UIState {
   cmdOpen: boolean;
   profileUser: UserPublic | null;
   incomingCall: boolean;
+  // When set, a ServerPreviewModal opens at the root layout level.
+  previewServerId: string | null;
 
   setMode: (m: AppMode) => void;
   setTheme: (t: "dark" | "light") => void;
@@ -20,6 +22,7 @@ interface UIState {
   setCmdOpen: (v: boolean) => void;
   setProfileUser: (u: UserPublic | null) => void;
   setIncomingCall: (v: boolean) => void;
+  setPreviewServerId: (id: string | null) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -32,6 +35,7 @@ export const useUIStore = create<UIState>()(
       cmdOpen: false,
       profileUser: null,
       incomingCall: false,
+      previewServerId: null,
 
       setMode: (mode) => set({ mode }),
       setTheme: (theme) => {
@@ -48,6 +52,7 @@ export const useUIStore = create<UIState>()(
       setCmdOpen: (cmdOpen) => set({ cmdOpen }),
       setProfileUser: (profileUser) => set({ profileUser }),
       setIncomingCall: (incomingCall) => set({ incomingCall }),
+      setPreviewServerId: (previewServerId) => set({ previewServerId }),
     }),
     { name: "hiroo-ui", partialState: (s: UIState) => ({ theme: s.theme, accent: s.accent }) } as any,
   ),

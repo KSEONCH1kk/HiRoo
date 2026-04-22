@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { friendsApi, dmsApi } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
+import { ClanTag } from "@/components/ui/ClanTag";
 import { Button } from "@/components/ui/Button";
 import { AddFriendModal } from "./AddFriendModal";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -115,9 +116,14 @@ export function FriendsList() {
             )}
             {pending.map((req: FriendRequest) => (
               <div key={req.id} style={{ padding: "12px 10px", display: "flex", alignItems: "center", gap: 12, borderTop: "1px solid var(--line)" }}>
-                <Avatar name={req.from_user.username} size={38} status={req.from_user.status} shape="circle" />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-0)" }}>{req.from_user.display_name ?? req.from_user.username}</div>
+                <Avatar name={req.from_user.username} size={38} status={req.from_user.status} shape="circle" avatarUrl={req.from_user.avatar_url} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-0)", display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {req.from_user.display_name ?? req.from_user.username}
+                    </span>
+                    <ClanTag tag={req.from_user.tag} />
+                  </div>
                   <div style={{ fontSize: 12, color: "var(--text-2)" }}>хочет добавить вас в друзья</div>
                 </div>
                 <Button size="sm" variant="primary" onClick={() => accept.mutate(req.id)}>Принять</Button>
@@ -141,8 +147,13 @@ export function FriendsList() {
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
                 <Avatar name={f.username} size={38} status={f.status} shape="circle" avatarUrl={f.avatar_url} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-0)" }}>{f.display_name ?? f.username}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-0)", display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {f.display_name ?? f.username}
+                    </span>
+                    <ClanTag tag={f.tag} />
+                  </div>
                   <div style={{ fontSize: 12.5, color: "var(--text-2)", fontFamily: "Geist Mono" }}>
                     {f.custom_status || f.status}
                   </div>

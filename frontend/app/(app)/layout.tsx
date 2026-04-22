@@ -22,6 +22,7 @@ import { CommandPalette } from "@/components/modals/CommandPalette";
 import { EphemeralToasts } from "@/components/chat/EphemeralToasts";
 import { ScreenSharePickerHost } from "@/components/desktop/ScreenSharePicker";
 import { ProfilePopout } from "@/components/modals/ProfilePopout";
+import { ServerPreviewModal } from "@/components/modals/ServerPreviewModal";
 import { VoiceCall } from "@/components/voice/VoiceCall";
 import { useCallStore } from "@/store/callStore";
 import { usePaletteStore } from "@/store/paletteStore";
@@ -32,7 +33,7 @@ const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } 
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const { user } = useAuthStore();
-  const { mode, setMode } = useUIStore();
+  const { mode, setMode, previewServerId, setPreviewServerId } = useUIStore();
   const { open: cmdOpen, setOpen: setCmdOpen } = usePaletteStore();
   const { active: activeCall, endCall, setMaximized } = useCallStore();
   const { servers, setServers, channels, setChannels, activeServerId, setActiveServer, activeChannelId, setActiveChannel } = useServerStore();
@@ -263,6 +264,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <ImageViewer />
       <CommandPalette show={cmdOpen} onClose={() => setCmdOpen(false)} />
       <ProfilePopout />
+      {previewServerId && (
+        <ServerPreviewModal
+          serverId={previewServerId}
+          onClose={() => setPreviewServerId(null)}
+        />
+      )}
       <EphemeralToasts />
       <ScreenSharePickerHost />
 

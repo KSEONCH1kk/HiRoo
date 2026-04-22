@@ -61,6 +61,12 @@ export function DevicesSettings() {
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {sessions.map((s) => {
           const parsed = parseUA(s.user_agent || "");
+          // fa-apple/windows/linux/chrome/firefox/safari belong to the
+          // `fa-brands` family; platform icons (fa-mobile-screen, fa-desktop,
+          // fa-globe) belong to `fa-solid`. Picking the right family avoids
+          // the "unknown glyph" square fallback.
+          const iconFamily = /^(fa-apple|fa-windows|fa-linux|fa-chrome|fa-firefox|fa-safari|fa-edge|fa-opera)$/.test(parsed.icon)
+            ? "fa-brands" : "fa-solid";
           return (
             <div key={s.id} style={{
               display: "flex", alignItems: "center", gap: 12,
@@ -73,7 +79,7 @@ export function DevicesSettings() {
                 background: "var(--bg-3)", color: s.current ? "var(--accent)" : "var(--text-2)",
                 display: "flex", alignItems: "center", justifyContent: "center",
               }}>
-                <i className={`fa-solid ${parsed.icon}`} style={{ fontSize: 17 }} />
+                <i className={`${iconFamily} ${parsed.icon}`} style={{ fontSize: 17 }} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>

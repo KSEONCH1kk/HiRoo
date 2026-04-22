@@ -151,6 +151,26 @@ async def join_server(
     return _server_response(server, count)
 
 
+@router.get("/{server_id}/preview", response_model=ServerResponse)
+async def preview_server(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Public preview card for ClanTag → modal flow.
+    Any authenticated user can hit this, but we only serve data if the
+    server is marked discoverable — otherwise the tag is just a cosmetic
+    badge without a join entry point."""
+    result = await db.execute(select(Server).where(Server.id == server_id))
+    server = result.scalar_one_or_none()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if not server.is_discoverable:
+        raise HTTPException(status_code=404, detail="Server is not public")
+    count = await _member_count(db, server.id)
+    return _server_response(server, count)
+
+
 @router.get("/{server_id}", response_model=ServerResponse)
 async def get_server(
     server_id: uuid.UUID,

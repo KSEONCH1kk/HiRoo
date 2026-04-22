@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter, useParams } from "next/navigation";
 import { dmsApi } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
+import { ClanTag } from "@/components/ui/ClanTag";
 import { useAuthStore } from "@/store/authStore";
 import { useUnreadStore } from "@/store/unreadStore";
 import { CreateDMModal } from "./CreateDMModal";
@@ -71,6 +72,9 @@ export function DMSidebar() {
           const isActive = dm.id === activeDmId;
           const title = dmTitle(dm, user?.id ?? null);
           const ava = dmAvatarProps(dm, user?.id ?? null);
+          const other = !dm.is_group
+            ? dm.participants.find((p) => p.user.id !== user?.id)?.user
+            : null;
           return (
             <div
               key={dm.id}
@@ -103,8 +107,16 @@ export function DMSidebar() {
                 <Avatar name={ava.name} size={32} status={ava.status} shape="circle" avatarUrl={ava.avatarUrl} />
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: (unreadByDm[dm.id] ?? 0) > 0 ? 700 : 500, color: isActive ? "var(--text-0)" : ((unreadByDm[dm.id] ?? 0) > 0 ? "var(--text-0)" : "var(--text-1)"), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {title}
+                <div style={{
+                  fontSize: 13.5,
+                  fontWeight: (unreadByDm[dm.id] ?? 0) > 0 ? 700 : 500,
+                  color: isActive ? "var(--text-0)" : ((unreadByDm[dm.id] ?? 0) > 0 ? "var(--text-0)" : "var(--text-1)"),
+                  display: "flex", alignItems: "center", gap: 6, minWidth: 0,
+                }}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                    {title}
+                  </span>
+                  {other?.tag && <ClanTag tag={other.tag} />}
                 </div>
                 {dm.is_group && (
                   <div style={{ fontSize: 10.5, color: "var(--text-3)", fontFamily: "Geist Mono", marginTop: 1 }}>

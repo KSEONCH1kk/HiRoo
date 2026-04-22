@@ -7,6 +7,17 @@ export interface ClanTag {
   server_name?: string | null;
 }
 
+export interface SoundboardSound {
+  id: string;
+  server_id: string;
+  name: string;
+  emoji: string | null;
+  uploader_id: string | null;
+  duration_ms: number;
+  created_at: string | null;
+  url: string;
+}
+
 export interface User {
   id: string;
   email: string;

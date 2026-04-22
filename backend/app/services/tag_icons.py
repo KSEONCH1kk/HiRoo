@@ -7,7 +7,7 @@ and gives the UI a consistent look.
 
 TAG_ICONS: list[str] = [
     "star", "crown", "shield", "shield-halved",
-    "bolt", "fire", "flame",
+    "bolt", "fire",
     "rocket", "gamepad", "dice", "chess-knight",
     "heart", "diamond", "gem",
     "ghost", "skull", "dragon", "wand-magic-sparkles",

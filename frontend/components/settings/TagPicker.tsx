@@ -110,7 +110,7 @@ function TagRow({ active, label, preview, onClick, pending }: {
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {label}
       </span>
-      {preview && <ClanTag tag={preview} />}
+      {preview && <ClanTag tag={preview} nonInteractive />}
     </button>
   );
 }

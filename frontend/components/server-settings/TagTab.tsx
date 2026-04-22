@@ -66,7 +66,7 @@ export function TagTab({ server }: { server: Server }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontWeight: 600, color: "var(--text-0)" }}>Имя пользователя</span>
-            <ClanTag tag={previewTag} />
+            <ClanTag tag={previewTag} nonInteractive />
           </div>
         </div>
       )}

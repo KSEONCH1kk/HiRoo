@@ -14,7 +14,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.rate_limit import limiter
 from app.middleware.security import SecurityHeadersMiddleware
 from app.middleware.logging import LoggingMiddleware
-from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy, qr_auth
+from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy, qr_auth, soundboard
 from app.routers import webhooks as webhooks_router
 from app.routers import applications as applications_router
 from app.routers import oauth2 as oauth2_router
@@ -124,6 +124,25 @@ MIGRATIONS = [
     "ALTER TABLE servers ADD COLUMN IF NOT EXISTS tag_icon VARCHAR(32)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS active_tag_server_id UUID REFERENCES servers(id) ON DELETE SET NULL",
     "CREATE INDEX IF NOT EXISTS ix_users_active_tag_server_id ON users (active_tag_server_id)",
+    # Soundboard sounds — short audio clips (≤ 30s) uploaded per server.
+    """
+    CREATE TABLE IF NOT EXISTS soundboard_sounds (
+        id UUID PRIMARY KEY,
+        server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        name VARCHAR(32) NOT NULL,
+        emoji VARCHAR(8),
+        uploader_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        file_path VARCHAR(255) NOT NULL,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_soundboard_sounds_server_id ON soundboard_sounds (server_id)",
+    # USE_SOUNDBOARD = 1 << 19 = 524288. Retroactively grant it to every
+    # existing @everyone role on servers created before the permission bit
+    # existed, so current members can actually hear/play sounds without an
+    # admin re-editing every role.
+    "UPDATE roles SET permissions = permissions | 524288 WHERE is_everyone = TRUE AND (permissions & 524288) = 0",
 ]
 
 
@@ -204,6 +223,8 @@ app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads"
 # Routers
 app.include_router(auth.router)
 app.include_router(qr_auth.router)
+app.include_router(soundboard.router)
+app.include_router(soundboard.me_router)
 app.include_router(users.router)
 app.include_router(users.tag_icons_router)
 app.include_router(servers.router)

@@ -18,6 +18,9 @@ export const PERMISSIONS = {
   MOVE_MEMBERS: 1 << 16,
   MUTE_MEMBERS: 1 << 17,
   DEAFEN_MEMBERS: 1 << 18,
+  USE_SOUNDBOARD: 1 << 19,
+  UPLOAD_SOUNDBOARD: 1 << 20,
+  MANAGE_SOUNDBOARD: 1 << 21,
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSIONS;
@@ -60,6 +63,14 @@ export const PERMISSION_GROUPS: { title: string; items: { key: PermissionKey; la
       { key: "MOVE_MEMBERS", label: "Перемещать участников", hint: "Между голосовыми каналами" },
       { key: "MUTE_MEMBERS", label: "Мьютить участников", hint: "В голосовом" },
       { key: "DEAFEN_MEMBERS", label: "Заглушать участников", hint: "Выключать звук в голосовом" },
+    ],
+  },
+  {
+    title: "Звуковая панель",
+    items: [
+      { key: "USE_SOUNDBOARD", label: "Использовать звуковую панель", hint: "Проигрывать звуки в войсе" },
+      { key: "UPLOAD_SOUNDBOARD", label: "Загружать звуки", hint: "До 30 секунд" },
+      { key: "MANAGE_SOUNDBOARD", label: "Управлять звуками", hint: "Удалять и переименовывать любые" },
     ],
   },
 ];

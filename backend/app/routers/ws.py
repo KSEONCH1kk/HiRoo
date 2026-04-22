@@ -661,6 +661,82 @@ async def websocket_endpoint(
                         "data": {"from_user_id": str(user.id)},
                     })
 
+            elif event == "soundboard_play":
+                # Sender must be in the referenced room and have USE_SOUNDBOARD
+                # for the server that owns the sound. We fan out a lightweight
+                # event with the sound URL; each receiver plays it locally and
+                # enforces its own per-user mute list.
+                sound_id = payload.get("sound_id")
+                room_id = payload.get("room_id")
+                if not sound_id or not room_id:
+                    continue
+                try:
+                    sid_uuid = uuid.UUID(sound_id)
+                except (ValueError, TypeError):
+                    continue
+                if await manager.voice_room_of(str(user.id)) != room_id:
+                    continue
+
+                from app.models.soundboard import SoundboardSound
+                sr = await db.execute(
+                    select(SoundboardSound).where(SoundboardSound.id == sid_uuid)
+                )
+                sound = sr.scalar_one_or_none()
+                if not sound:
+                    continue
+
+                # Permission check — must be a member of the sound's server
+                # and have USE_SOUNDBOARD (or ADMIN).
+                from app.core.deps import compute_permissions as _cp
+                from app.models.role import Permissions as _Perms
+                mem_res = await db.execute(
+                    select(ServerMember).where(
+                        ServerMember.server_id == sound.server_id,
+                        ServerMember.user_id == user.id,
+                    )
+                )
+                if not mem_res.scalar_one_or_none():
+                    continue
+                perms = await _cp(sound.server_id, user.id, db)
+                if not ((perms & _Perms.USE_SOUNDBOARD) or (perms & _Perms.ADMIN)):
+                    await ws.send_text(json.dumps({
+                        "event": "error",
+                        "data": {"message": "Нет права использовать звуки этого сервера"},
+                    }))
+                    continue
+
+                # Also enforce channel-level CONNECT_VOICE / SPEAK_VOICE if
+                # we're in a server voice channel.
+                if room_id.startswith("channel:"):
+                    try:
+                        ch_uuid = uuid.UUID(room_id.split(":", 1)[1])
+                    except (ValueError, IndexError):
+                        continue
+                    ch_res = await db.execute(select(Channel).where(Channel.id == ch_uuid))
+                    ch = ch_res.scalar_one_or_none()
+                    if not ch:
+                        continue
+                    ch_perms = await _cp(ch.server_id, user.id, db, channel_id=ch.id)
+                    if not ((ch_perms & _Perms.SPEAK_VOICE) or (ch_perms & _Perms.ADMIN)):
+                        continue
+
+                url = f"/uploads/{sound.file_path}"
+                peers = await manager.voice_room_members(room_id)
+                for peer_id in peers:
+                    if peer_id == str(user.id):
+                        continue
+                    await manager.send_to_user(peer_id, {
+                        "event": "soundboard_play_remote",
+                        "data": {
+                            "room_id": room_id,
+                            "from_user_id": str(user.id),
+                            "sound_id": str(sound.id),
+                            "name": sound.name,
+                            "emoji": sound.emoji,
+                            "url": url,
+                        },
+                    })
+
     except WebSocketDisconnect:
         pass
     finally:
