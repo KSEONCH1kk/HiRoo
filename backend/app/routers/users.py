@@ -183,6 +183,101 @@ async def get_user(
     return data
 
 
+# ── Mutual servers / mutual friends (profile card) ───────────────────
+
+class MutualServerOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    icon_url: str | None = None
+    member_count: int = 0
+
+
+@router.get("/{user_id}/mutual-servers", response_model=list[MutualServerOut])
+async def mutual_servers(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Servers where BOTH the caller and target user are members. Used by
+    the profile popover to render mutual-servers row."""
+    from sqlalchemy import func as _f
+    from app.models.server import Server, ServerMember
+    if user_id == current_user.id:
+        return []
+    # IDs of servers current user is in
+    mine = await db.execute(
+        select(ServerMember.server_id).where(ServerMember.user_id == current_user.id)
+    )
+    my_ids = {r[0] for r in mine.all()}
+    if not my_ids:
+        return []
+    theirs = await db.execute(
+        select(ServerMember.server_id).where(
+            ServerMember.user_id == user_id,
+            ServerMember.server_id.in_(my_ids),
+        )
+    )
+    common_ids = [r[0] for r in theirs.all()]
+    if not common_ids:
+        return []
+    res = await db.execute(
+        select(Server, _f.count(ServerMember.user_id).label("cnt"))
+        .outerjoin(ServerMember, ServerMember.server_id == Server.id)
+        .where(Server.id.in_(common_ids))
+        .group_by(Server.id)
+        .order_by(Server.name.asc())
+    )
+    return [
+        MutualServerOut(
+            id=s.id, name=s.name, icon_url=s.icon_url, member_count=int(cnt or 0),
+        )
+        for s, cnt in res.all()
+    ]
+
+
+@router.get("/{user_id}/mutual-friends", response_model=list[UserPublic])
+async def mutual_friends(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Users who are friends of BOTH the caller and the target."""
+    from sqlalchemy import or_
+    from app.models.friend import FriendRequest
+    if user_id == current_user.id:
+        return []
+
+    async def _friend_ids_of(uid: uuid.UUID) -> set[uuid.UUID]:
+        r = await db.execute(
+            select(FriendRequest).where(
+                or_(
+                    FriendRequest.from_user_id == uid,
+                    FriendRequest.to_user_id == uid,
+                ),
+                FriendRequest.status == "accepted",
+            )
+        )
+        ids: set[uuid.UUID] = set()
+        for fr in r.scalars():
+            ids.add(fr.to_user_id if fr.from_user_id == uid else fr.from_user_id)
+        return ids
+
+    mine, theirs = await _friend_ids_of(current_user.id), await _friend_ids_of(user_id)
+    common = mine & theirs - {current_user.id, user_id}
+    if not common:
+        return []
+    ur = await db.execute(select(User).where(User.id.in_(common)))
+    users = list(ur.scalars())
+    out = []
+    for u in users:
+        badges = await compute_badges(u, db)
+        data = _with_badges(u, badges)
+        if not getattr(u, "show_online_status", True):
+            data["status"] = "offline"
+        out.append(UserPublic.model_validate(data))
+    return out
+
+
 # ── Block list ───────────────────────────────────────────────────────────
 
 @router.get("/me/blocks", response_model=list[UserPublic])

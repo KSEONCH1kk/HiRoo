@@ -14,11 +14,19 @@ class Channel(Base):
         UUID(as_uuid=True), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    type: Mapped[str] = mapped_column(String(16), default="text")  # text/voice/announcement
+    # text / voice / announcement / category / forum
+    type: Mapped[str] = mapped_column(String(16), default="text")
     position: Mapped[int] = mapped_column(Integer, default=0)
     topic: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     is_private: Mapped[bool] = mapped_column(Boolean, default=False)
     slowmode_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    # Categories nest non-category channels. NULL parent = top-level (server
+    # root). Self-nested categories are disallowed at the API layer.
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     server = relationship("Server", back_populates="channels")

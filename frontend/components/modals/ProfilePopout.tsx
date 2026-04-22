@@ -144,8 +144,161 @@ export function ProfilePopout() {
               На HiRoo с {formatJoinDate(p.created_at)}
             </div>
           )}
+          {!isSelf && <MutualsSection userId={p.id} />}
         </div>
       </div>
     </>
+  );
+}
+
+// ── Mutual servers + mutual friends block ──────────────────────────────
+
+function MutualsSection({ userId }: { userId: string }) {
+  const [tab, setTab] = useState<"servers" | "friends">("servers");
+  const { data: servers, isLoading: loadingServers } = useQuery({
+    queryKey: ["mutual-servers", userId],
+    queryFn: () => usersApi.mutualServers(userId),
+    staleTime: 30_000,
+  });
+  const { data: friends, isLoading: loadingFriends } = useQuery({
+    queryKey: ["mutual-friends", userId],
+    queryFn: () => usersApi.mutualFriends(userId),
+    staleTime: 30_000,
+  });
+  const setProfileUser = useUIStore((s) => s.setProfileUser);
+  const router = useRouter();
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+  const resolveIcon = (url?: string | null) => {
+    if (!url) return undefined;
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    return `${API_BASE}${url}`;
+  };
+
+  const sCount = servers?.length ?? 0;
+  const fCount = friends?.length ?? 0;
+
+  if (sCount === 0 && fCount === 0 && !loadingServers && !loadingFriends) return null;
+
+  return (
+    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+        <MutualTab active={tab === "servers"} onClick={() => setTab("servers")}>
+          Серверы{sCount ? ` · ${sCount}` : ""}
+        </MutualTab>
+        <MutualTab active={tab === "friends"} onClick={() => setTab("friends")}>
+          Друзья{fCount ? ` · ${fCount}` : ""}
+        </MutualTab>
+      </div>
+
+      {tab === "servers" && (
+        <div style={{ maxHeight: 160, overflowY: "auto" }}>
+          {loadingServers ? (
+            <div style={{ fontSize: 12, color: "var(--text-3)" }}>Загрузка…</div>
+          ) : sCount === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--text-3)", fontStyle: "italic" }}>
+              Нет общих серверов
+            </div>
+          ) : (
+            servers!.map((s) => (
+              <div
+                key={s.id}
+                onClick={() => { setProfileUser(null); router.push(`/servers/${s.id}`); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "6px 8px", borderRadius: 6, cursor: "pointer",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                {s.icon_url ? (
+                  <img
+                    src={resolveIcon(s.icon_url)}
+                    alt={s.name}
+                    style={{ width: 28, height: 28, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}
+                  />
+                ) : (
+                  <div style={{
+                    width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                    background: "linear-gradient(135deg, var(--accent), #5b8af0)",
+                    color: "#fff", fontSize: 11, fontWeight: 700,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    {s.name.slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {s.name}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "var(--text-3)", fontFamily: "Geist Mono" }}>
+                    {s.member_count}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {tab === "friends" && (
+        <div style={{ maxHeight: 160, overflowY: "auto" }}>
+          {loadingFriends ? (
+            <div style={{ fontSize: 12, color: "var(--text-3)" }}>Загрузка…</div>
+          ) : fCount === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--text-3)", fontStyle: "italic" }}>
+              Нет общих друзей
+            </div>
+          ) : (
+            friends!.map((u) => (
+              <div
+                key={u.id}
+                onClick={() => setProfileUser(u)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "6px 8px", borderRadius: 6, cursor: "pointer",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                <Avatar
+                  name={u.username}
+                  size={28}
+                  shape="circle"
+                  avatarUrl={u.avatar_url}
+                  status={u.status}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {u.display_name ?? u.username}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "var(--text-3)", fontFamily: "Geist Mono" }}>
+                    @{u.username}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MutualTab({ active, onClick, children }: {
+  active: boolean; onClick: () => void; children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer",
+        background: active ? "var(--bg-3)" : "transparent",
+        color: active ? "var(--text-0)" : "var(--text-2)",
+        fontSize: 11.5, fontWeight: 600,
+      }}
+    >
+      {children}
+    </button>
   );
 }

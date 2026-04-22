@@ -211,35 +211,86 @@ function UploadForm({ serverId, onUploaded }: { serverId: string; onUploaded: ()
         Загрузить звук
       </div>
 
+      {/* Hidden native input — the Chrome/WebView-styled button it renders
+          by default looks out of place, so we drive it from our own styled
+          dropzone below. */}
       <input
         ref={fileInput}
         type="file"
         accept="audio/mpeg,audio/mp3,audio/ogg,audio/opus,audio/wav,audio/webm,audio/mp4,audio/aac,audio/*,.mp3,.ogg,.opus,.wav,.webm,.m4a,.aac"
         onChange={handleFile}
+        style={{ display: "none" }}
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 10 }}>
+      <button
+        type="button"
+        onClick={() => fileInput.current?.click()}
+        style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "14px 16px", borderRadius: 10,
+          background: file ? "var(--bg-0)" : "var(--bg-1)",
+          border: `1px dashed ${file ? "var(--accent)" : "var(--line-strong)"}`,
+          color: "var(--text-0)", cursor: "pointer",
+          textAlign: "left", fontFamily: "inherit", fontSize: 14,
+          transition: "background 120ms, border-color 120ms",
+        }}
+        onMouseEnter={(e) => { if (!file) (e.currentTarget as HTMLButtonElement).style.background = "var(--bg-hover)"; }}
+        onMouseLeave={(e) => { if (!file) (e.currentTarget as HTMLButtonElement).style.background = "var(--bg-1)"; }}
+      >
+        <div style={{
+          width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+          background: file ? "var(--accent)" : "var(--bg-3)",
+          color: file ? "#fff" : "var(--text-1)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <i className={`fa-solid ${file ? "fa-music" : "fa-upload"}`} style={{ fontSize: 14 }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {file ? file.name : "Выбрать аудиофайл"}
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-3)", fontFamily: "Geist Mono", marginTop: 2 }}>
+            {file
+              ? `${((file.size ?? 0) / 1024).toFixed(1)} КБ${probedDur != null ? ` · ${probedDur.toFixed(1)}с` : ""}`
+              : `MP3 / OGG / WAV · до 30с · до ${(MAX_BYTES / 1024 / 1024).toFixed(1)} МБ`
+            }
+          </div>
+        </div>
+        {file && (
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              setFile(null); setProbedDur(null); setErr(null);
+              if (fileInput.current) fileInput.current.value = "";
+            }}
+            title="Убрать файл"
+            style={{
+              width: 28, height: 28, borderRadius: 6,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "var(--text-2)",
+            }}
+          >
+            <i className="fa-solid fa-xmark" style={{ fontSize: 12 }} />
+          </span>
+        )}
+      </button>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <input
           value={name}
           onChange={(e) => setName(e.target.value.slice(0, 32))}
           placeholder="Название (до 32 символов)"
           maxLength={32}
-          style={inputStyle}
+          style={{ ...inputStyle, flex: "1 1 200px", minWidth: 0, boxSizing: "border-box" }}
         />
         <input
           value={emoji}
           onChange={(e) => setEmoji(e.target.value.slice(0, 8))}
           placeholder="😎"
           maxLength={8}
-          style={{ ...inputStyle, textAlign: "center", fontSize: 18 }}
+          style={{ ...inputStyle, width: 84, flex: "0 0 84px", textAlign: "center", fontSize: 18, boxSizing: "border-box" }}
         />
       </div>
-
-      {probedDur !== null && (
-        <div style={{ fontSize: 12, color: "var(--text-2)", fontFamily: "Geist Mono" }}>
-          Длительность: {probedDur.toFixed(2)}с · Размер: {((file?.size ?? 0) / 1024).toFixed(1)} КБ
-        </div>
-      )}
 
       {err && <div style={{ color: "var(--danger)", fontSize: 13 }}>{err}</div>}
 

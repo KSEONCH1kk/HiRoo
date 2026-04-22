@@ -10,7 +10,7 @@ from app.models.server import ServerMember
 from app.models.channel import Channel
 from app.models.role import Permissions, Role
 from app.models.channel_permission import ChannelRolePermission
-from app.schemas.channel import ChannelCreate, ChannelUpdate, ChannelResponse
+from app.schemas.channel import ChannelCreate, ChannelUpdate, ChannelResponse, ChannelReorderItem
 from app.services.websocket_service import manager
 
 router = APIRouter(prefix="/api/servers/{server_id}/channels", tags=["channels"])
@@ -45,6 +45,17 @@ async def create_channel(
     db: AsyncSession = Depends(get_db),
     _: ServerMember = Depends(require_permission(Permissions.MANAGE_CHANNELS)),
 ):
+    # Validate parent: must be a category in the same server, and the new
+    # channel itself must not be a category (no nested categories).
+    parent_id = body.parent_id
+    if parent_id is not None:
+        pres = await db.execute(select(Channel).where(Channel.id == parent_id))
+        parent = pres.scalar_one_or_none()
+        if not parent or parent.server_id != server_id or parent.type != "category":
+            raise HTTPException(status_code=400, detail="Неверный parent_id")
+        if body.type == "category":
+            raise HTTPException(status_code=400, detail="Категории не могут быть вложенными")
+
     channel = Channel(
         server_id=server_id,
         name=body.name,
@@ -52,6 +63,7 @@ async def create_channel(
         topic=body.topic,
         is_private=body.is_private,
         position=body.position,
+        parent_id=parent_id,
     )
     db.add(channel)
     await db.flush()
@@ -85,6 +97,17 @@ async def update_channel(
         channel.topic = body.topic
     if body.slowmode_seconds is not None:
         channel.slowmode_seconds = body.slowmode_seconds
+    if "parent_id" in body.model_fields_set:
+        if body.parent_id is None:
+            channel.parent_id = None
+        else:
+            pr = await db.execute(select(Channel).where(Channel.id == body.parent_id))
+            parent = pr.scalar_one_or_none()
+            if not parent or parent.server_id != server_id or parent.type != "category":
+                raise HTTPException(status_code=400, detail="Неверный parent_id")
+            if channel.type == "category":
+                raise HTTPException(status_code=400, detail="Категории не могут быть вложенными")
+            channel.parent_id = parent.id
     await db.flush()
     await manager.broadcast_to_server(str(server_id), {
         "event": "channel_update",
@@ -96,22 +119,57 @@ async def update_channel(
 @router.post("/reorder", status_code=204)
 async def reorder_channels(
     server_id: uuid.UUID,
-    ordered_ids: list[uuid.UUID],
+    items: list[ChannelReorderItem],
     db: AsyncSession = Depends(get_db),
     _: ServerMember = Depends(require_permission(Permissions.MANAGE_CHANNELS)),
 ):
+    """Bulk update channel positions + parent assignments. Each item carries
+    the target position and optional parent_id — used by the sidebar
+    drag-and-drop UI to rewire channels in a single request.
+
+    Rejects: parent_id pointing to a non-category or to a channel on a
+    different server; making a category itself a child."""
+    ids = [i.id for i in items]
     result = await db.execute(
-        select(Channel).where(Channel.server_id == server_id, Channel.id.in_(ordered_ids))
+        select(Channel).where(Channel.server_id == server_id, Channel.id.in_(ids))
     )
     channels_map = {c.id: c for c in result.scalars().all()}
-    for pos, cid in enumerate(ordered_ids):
-        ch = channels_map.get(cid)
-        if ch:
-            ch.position = pos
+
+    # Preload any parent IDs to validate types in one query.
+    parent_ids = {i.parent_id for i in items if i.parent_id is not None}
+    parents_map: dict = {}
+    if parent_ids:
+        pr = await db.execute(
+            select(Channel).where(Channel.server_id == server_id, Channel.id.in_(parent_ids))
+        )
+        parents_map = {c.id: c for c in pr.scalars().all()}
+
+    for item in items:
+        ch = channels_map.get(item.id)
+        if not ch:
+            continue
+        ch.position = item.position
+        if item.parent_id is None:
+            ch.parent_id = None
+        else:
+            p = parents_map.get(item.parent_id)
+            if not p or p.type != "category":
+                raise HTTPException(status_code=400, detail="Неверный parent_id")
+            if ch.type == "category":
+                raise HTTPException(status_code=400, detail="Категории не могут быть вложенными")
+            ch.parent_id = p.id
+
     await db.flush()
     await manager.broadcast_to_server(str(server_id), {
         "event": "channel_reorder",
-        "data": {"server_id": str(server_id), "ordered_ids": [str(i) for i in ordered_ids]},
+        "data": {
+            "server_id": str(server_id),
+            "items": [
+                {"id": str(i.id), "position": i.position,
+                 "parent_id": str(i.parent_id) if i.parent_id else None}
+                for i in items
+            ],
+        },
     })
 
 

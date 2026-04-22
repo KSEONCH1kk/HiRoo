@@ -14,7 +14,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.rate_limit import limiter
 from app.middleware.security import SecurityHeadersMiddleware
 from app.middleware.logging import LoggingMiddleware
-from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy, qr_auth, soundboard, templates as templates_router
+from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy, qr_auth, soundboard, templates as templates_router, forum as forum_router
 from app.routers import webhooks as webhooks_router
 from app.routers import applications as applications_router
 from app.routers import oauth2 as oauth2_router
@@ -159,6 +159,43 @@ MIGRATIONS = [
     """,
     "CREATE INDEX IF NOT EXISTS ix_server_templates_code ON server_templates (code)",
     "CREATE INDEX IF NOT EXISTS ix_server_templates_source ON server_templates (source_server_id)",
+    # Channel categories — a channel with type='category' nests children
+    # via the parent_id FK. Forums share the same table (type='forum').
+    "ALTER TABLE channels ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES channels(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_channels_parent_id ON channels (parent_id)",
+    # Forum tags — per-channel label pool
+    """
+    CREATE TABLE IF NOT EXISTS forum_tags (
+        id UUID PRIMARY KEY,
+        channel_id UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+        name VARCHAR(32) NOT NULL,
+        color VARCHAR(9) NOT NULL DEFAULT '#7c5cff',
+        emoji VARCHAR(8),
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_forum_tags_channel_id ON forum_tags (channel_id)",
+    # Forum posts — discussion threads inside a forum channel
+    """
+    CREATE TABLE IF NOT EXISTS forum_posts (
+        id UUID PRIMARY KEY,
+        channel_id UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+        author_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        title VARCHAR(120) NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        tag_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        is_rules BOOLEAN NOT NULL DEFAULT FALSE,
+        is_locked BOOLEAN NOT NULL DEFAULT FALSE,
+        is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+        reply_count INTEGER NOT NULL DEFAULT 0,
+        last_activity_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_forum_posts_channel_id ON forum_posts (channel_id)",
+    "CREATE INDEX IF NOT EXISTS ix_forum_posts_last_activity ON forum_posts (last_activity_at DESC)",
+    "CREATE INDEX IF NOT EXISTS ix_forum_posts_is_rules ON forum_posts (is_rules)",
 ]
 
 
@@ -243,6 +280,7 @@ app.include_router(soundboard.router)
 app.include_router(soundboard.me_router)
 app.include_router(templates_router.router)
 app.include_router(templates_router.public_router)
+app.include_router(forum_router.router)
 app.include_router(users.router)
 app.include_router(users.tag_icons_router)
 app.include_router(servers.router)

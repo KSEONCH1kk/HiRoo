@@ -29,19 +29,23 @@ export function ChannelsTab({ serverId }: { serverId: string }) {
   });
 
   const reorder = useMutation({
-    mutationFn: (ids: string[]) => channelsApi.reorder(serverId, ids),
+    mutationFn: (items: { id: string; position: number; parent_id: string | null }[]) =>
+      channelsApi.reorder(serverId, items),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["channels", serverId] }),
   });
 
   const move = (channel: Channel, direction: -1 | 1) => {
-    const same = channels.filter((c) => c.type === channel.type).sort((a, b) => a.position - b.position);
+    const same = channels
+      .filter((c) => c.type === channel.type && (c.parent_id ?? null) === (channel.parent_id ?? null))
+      .sort((a, b) => a.position - b.position);
     const idx = same.findIndex((c) => c.id === channel.id);
     const newIdx = idx + direction;
     if (newIdx < 0 || newIdx >= same.length) return;
     const reordered = [...same];
     [reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]];
-    const others = channels.filter((c) => c.type !== channel.type).sort((a, b) => a.position - b.position);
-    reorder.mutate([...others, ...reordered].map((c) => c.id));
+    reorder.mutate(reordered.map((c, i) => ({
+      id: c.id, position: i, parent_id: c.parent_id ?? null,
+    })));
   };
 
   const text = channels.filter((c) => c.type !== "voice").sort((a, b) => a.position - b.position);

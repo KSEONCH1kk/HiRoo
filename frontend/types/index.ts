@@ -74,11 +74,12 @@ export interface Channel {
   id: string;
   server_id: string;
   name: string;
-  type: "text" | "voice" | "announcement";
+  type: "text" | "voice" | "announcement" | "category" | "forum";
   position: number;
   topic: string | null;
   is_private: boolean;
   slowmode_seconds: number;
+  parent_id?: string | null;
   created_at: string;
 }
 

@@ -208,6 +208,12 @@ export const usersApi = {
   },
   setPublicKey: (public_key: string, signing_public_key?: string) =>
     api.post<User>("/api/users/me/key", { public_key, signing_public_key }).then((r) => r.data),
+  mutualServers: (id: string) =>
+    api.get<{ id: string; name: string; icon_url: string | null; member_count: number }[]>(
+      `/api/users/${id}/mutual-servers`,
+    ).then((r) => r.data),
+  mutualFriends: (id: string) =>
+    api.get<UserPublic[]>(`/api/users/${id}/mutual-friends`).then((r) => r.data),
 };
 
 // ── Servers ──────────────────────────────────────────────────
@@ -261,20 +267,67 @@ export interface ServerBan {
 export const channelsApi = {
   list: (serverId: string) =>
     api.get<Channel[]>(`/api/servers/${serverId}/channels`).then((r) => r.data),
-  create: (serverId: string, data: { name: string; type?: string; topic?: string }) =>
+  create: (serverId: string, data: { name: string; type?: string; topic?: string; parent_id?: string | null }) =>
     api.post<Channel>(`/api/servers/${serverId}/channels`, data).then((r) => r.data),
   update: (serverId: string, channelId: string, data: Partial<Channel>) =>
     api.patch<Channel>(`/api/servers/${serverId}/channels/${channelId}`, data).then((r) => r.data),
   delete: (serverId: string, channelId: string) =>
     api.delete(`/api/servers/${serverId}/channels/${channelId}`),
-  reorder: (serverId: string, orderedIds: string[]) =>
-    api.post(`/api/servers/${serverId}/channels/reorder`, orderedIds),
+  /** Newer reorder API: each item carries parent_id + position. */
+  reorder: (serverId: string, items: { id: string; position: number; parent_id: string | null }[]) =>
+    api.post(`/api/servers/${serverId}/channels/reorder`, items),
   listOverrides: (serverId: string, channelId: string) =>
     api.get<ChannelRoleOverride[]>(`/api/servers/${serverId}/channels/${channelId}/permissions`).then((r) => r.data),
   setOverride: (serverId: string, channelId: string, roleId: string, data: { allow: number; deny: number }) =>
     api.put<ChannelRoleOverride>(`/api/servers/${serverId}/channels/${channelId}/permissions/${roleId}`, data).then((r) => r.data),
   deleteOverride: (serverId: string, channelId: string, roleId: string) =>
     api.delete(`/api/servers/${serverId}/channels/${channelId}/permissions/${roleId}`),
+};
+
+// ── Forums ────────────────────────────────────────────────────
+export interface ForumTag {
+  id: string;
+  channel_id: string;
+  name: string;
+  color: string;
+  emoji: string | null;
+  position: number;
+}
+export interface ForumPost {
+  id: string;
+  channel_id: string;
+  author: UserPublic | null;
+  title: string;
+  content: string;
+  tag_ids: string[];
+  is_rules: boolean;
+  is_locked: boolean;
+  is_pinned: boolean;
+  reply_count: number;
+  last_activity_at: string;
+  created_at: string;
+}
+export const forumApi = {
+  list: (channelId: string, params: { q?: string; sort?: "recent" | "new" | "oldest"; tag?: string; cursor?: string } = {}) =>
+    api.get<{ posts: ForumPost[]; rules: ForumPost | null; tags: ForumTag[]; has_more: boolean }>(
+      `/api/channels/${channelId}/forum/posts`, { params },
+    ).then((r) => r.data),
+  createPost: (channelId: string, data: { title: string; content?: string; tag_ids?: string[] }) =>
+    api.post<ForumPost>(`/api/channels/${channelId}/forum/posts`, data).then((r) => r.data),
+  updatePost: (channelId: string, postId: string, data: Partial<{ title: string; content: string; tag_ids: string[]; is_locked: boolean; is_pinned: boolean }>) =>
+    api.patch<ForumPost>(`/api/channels/${channelId}/forum/posts/${postId}`, data).then((r) => r.data),
+  deletePost: (channelId: string, postId: string) =>
+    api.delete(`/api/channels/${channelId}/forum/posts/${postId}`),
+  listTags: (channelId: string) =>
+    api.get<ForumTag[]>(`/api/channels/${channelId}/forum/tags`).then((r) => r.data),
+  createTag: (channelId: string, data: { name: string; color?: string; emoji?: string }) =>
+    api.post<ForumTag>(`/api/channels/${channelId}/forum/tags`, data).then((r) => r.data),
+  deleteTag: (channelId: string, tagId: string) =>
+    api.delete(`/api/channels/${channelId}/forum/tags/${tagId}`),
+  upsertRules: (channelId: string, data: { title: string; content?: string }) =>
+    api.put<ForumPost>(`/api/channels/${channelId}/forum/rules`, data).then((r) => r.data),
+  deleteRules: (channelId: string) =>
+    api.delete(`/api/channels/${channelId}/forum/rules`),
 };
 
 export interface ChannelRoleOverride {

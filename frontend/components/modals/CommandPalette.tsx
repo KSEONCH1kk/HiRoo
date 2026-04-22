@@ -10,7 +10,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import type { DirectMessage, UserPublic, Server } from "@/types";
 
 type Result =
-  | { kind: "channel"; id: string; serverId: string; name: string; type: "text" | "voice" | "announcement" }
+  | { kind: "channel"; id: string; serverId: string; name: string; type: "text" | "voice" | "announcement" | "category" | "forum" }
   | { kind: "dm"; id: string; title: string; isGroup: boolean; iconUrl: string | null; avatarUrl: string | null; other: UserPublic | null }
   | { kind: "user"; id: string; user: UserPublic }
   | { kind: "server"; id: string; name: string; iconUrl: string | null };
@@ -44,6 +44,8 @@ export function CommandPalette({ show, onClose }: { show: boolean; onClose: () =
     for (const sid of Object.keys(channels)) {
       const server = servers.find((s) => s.id === sid);
       for (const c of (channels[sid] ?? [])) {
+        // Categories aren't navigable destinations — skip them from search.
+        if (c.type === "category") continue;
         result.push({ ch: { kind: "channel", id: c.id, serverId: sid, name: c.name + (server ? ` · ${server.name}` : ""), type: c.type } });
       }
     }
@@ -110,7 +112,9 @@ export function CommandPalette({ show, onClose }: { show: boolean; onClose: () =
 
   const pick = async (r: Result) => {
     if (r.kind === "channel") {
-      router.push(`/servers/${r.serverId}/channels/${r.id}`);
+      if (r.type === "forum") router.push(`/servers/${r.serverId}/forum/${r.id}`);
+      else if (r.type === "category") { /* not navigable */ return; }
+      else router.push(`/servers/${r.serverId}/channels/${r.id}`);
     } else if (r.kind === "dm") {
       router.push(`/dms/${r.id}`);
     } else if (r.kind === "user") {
@@ -202,9 +206,18 @@ function ResultRow({ r, active, idx, onHover, onPick }: { r: Result; active: boo
   let secondary: string;
 
   if (r.kind === "channel") {
-    icon = <i className={`fa-solid ${r.type === "voice" ? "fa-volume-high" : "fa-hashtag"}`} style={{ fontSize: 13, color: "var(--text-2)", width: 28, textAlign: "center" }} />;
+    const iconKey =
+      r.type === "voice" ? "fa-volume-high"
+      : r.type === "forum" ? "fa-comments"
+      : r.type === "category" ? "fa-layer-group"
+      : "fa-hashtag";
+    icon = <i className={`fa-solid ${iconKey}`} style={{ fontSize: 13, color: "var(--text-2)", width: 28, textAlign: "center" }} />;
     primary = r.name;
-    secondary = r.type === "voice" ? "Голосовой канал" : "Канал";
+    secondary =
+      r.type === "voice" ? "Голосовой канал"
+      : r.type === "forum" ? "Форум"
+      : r.type === "category" ? "Категория"
+      : "Канал";
   } else if (r.kind === "dm") {
     icon = r.isGroup ? (
       r.iconUrl ? (

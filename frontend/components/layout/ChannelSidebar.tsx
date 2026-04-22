@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { serversApi } from "@/lib/api";
+import { serversApi, channelsApi } from "@/lib/api";
 import { useServerStore } from "@/store/serverStore";
 import { useServerPermissions } from "@/hooks/useServerPermissions";
 import { useVoicePresenceStore } from "@/store/voicePresenceStore";
@@ -89,6 +89,66 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
 
   const text = channels.filter((c) => c.type === "text" || c.type === "announcement");
   const voice = channels.filter((c) => c.type === "voice");
+
+  // ── Dynamic categorised rendering ──────────────────────────────
+  // Items with parent_id = null are top-level. Categories ordered by
+  // position. Their children are looked up via parent_id.
+  const byId = new Map(channels.map((c) => [c.id, c]));
+  const sorted = [...channels].sort((a, b) => a.position - b.position);
+  const topLevel = sorted.filter((c) => !c.parent_id);
+  const byParent = new Map<string, Channel[]>();
+  for (const c of sorted) {
+    if (c.parent_id) {
+      const arr = byParent.get(c.parent_id) ?? [];
+      arr.push(c);
+      byParent.set(c.parent_id, arr);
+    }
+  }
+  const [categoryCtx, setCategoryCtx] = useState<{ x: number; y: number; channel: Channel } | null>(null);
+  const [emptyCtx, setEmptyCtx] = useState<{ x: number; y: number; parentId: string | null } | null>(null);
+  const [createType, setCreateType] = useState<"text" | "voice" | "category" | "forum" | null>(null);
+  const [createParent, setCreateParent] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string | null; pos: "before" | "after" | "into" } | null>(null);
+
+  const reorder = useMutation({
+    mutationFn: (items: { id: string; position: number; parent_id: string | null }[]) =>
+      channelsApi.reorder(server.id, items),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["channels", server.id] }),
+  });
+
+  function handleDrop(sourceId: string, targetId: string | null, pos: "before" | "after" | "into") {
+    const src = byId.get(sourceId);
+    if (!src) return;
+    let newParent: string | null;
+    const items: { id: string; position: number; parent_id: string | null }[] = [];
+    if (pos === "into") {
+      const target = targetId ? byId.get(targetId) : null;
+      if (!target || target.type !== "category" || src.type === "category") return;
+      newParent = target.id;
+      const siblings = (byParent.get(target.id) ?? []).filter((c) => c.id !== sourceId);
+      items.push({ id: sourceId, position: siblings.length, parent_id: newParent });
+    } else {
+      const target = targetId ? byId.get(targetId) : null;
+      newParent = target?.parent_id ?? null;
+      // Build new sibling list within newParent
+      const siblings = (newParent ? byParent.get(newParent) ?? [] : topLevel)
+        .filter((c) => c.id !== sourceId);
+      let insertIdx = target ? siblings.findIndex((c) => c.id === target.id) : siblings.length;
+      if (insertIdx < 0) insertIdx = siblings.length;
+      if (pos === "after") insertIdx += 1;
+      siblings.splice(insertIdx, 0, src);
+      siblings.forEach((c, i) => {
+        items.push({ id: c.id, position: i, parent_id: newParent });
+      });
+    }
+    if (items.length) reorder.mutate(items);
+  }
+
+  const startCreate = (type: "text" | "voice" | "category" | "forum", parent: string | null = null) => {
+    setCreateParent(parent);
+    setCreateType(type);
+  };
 
   const renderGroup = (label: string, groupKey: "text" | "voice", chs: Channel[]) => (
     <div key={label} style={{ marginBottom: 4 }}>
@@ -249,9 +309,60 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
         </>
       )}
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "10px 6px 14px" }}>
-        {renderGroup("текстовые каналы", "text", text)}
-        {renderGroup("голосовые", "voice", voice)}
+      <div
+        style={{ flex: 1, overflowY: "auto", padding: "10px 6px 14px" }}
+        onContextMenu={(e) => {
+          // Right-click on blank space inside the sidebar → create menu.
+          if ((e.target as HTMLElement).closest("[data-ch-item]")) return;
+          if (!has("MANAGE_CHANNELS")) return;
+          e.preventDefault();
+          setEmptyCtx({ x: e.clientX, y: e.clientY, parentId: null });
+        }}
+        onDrop={(e) => {
+          // Drop on blank space → detach from category.
+          const src = e.dataTransfer.getData("hiroo/channel");
+          if (!src || !has("MANAGE_CHANNELS")) return;
+          e.preventDefault();
+          setDragId(null);
+          setDropTarget(null);
+          handleDrop(src, null, "after");
+        }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("hiroo/channel")) e.preventDefault();
+        }}
+      >
+        {topLevel.map((item) => (
+          <SidebarItem
+            key={item.id}
+            channel={item}
+            children={byParent.get(item.id) ?? []}
+            activeChannelId={activeChannelId}
+            collapsed={collapsed}
+            setCollapsed={setCollapsed}
+            voicePresence={voicePresence}
+            membersById={membersById}
+            user={user}
+            canMove={canMove}
+            canManage={has("MANAGE_CHANNELS")}
+            onPickChannel={onPickChannel}
+            onOpenVoice={onOpenVoice}
+            onCtx={(x, y, ch) => ch.type === "category"
+              ? setCategoryCtx({ x, y, channel: ch })
+              : setCtx({ x, y, channel: ch })
+            }
+            onVoiceUserCtx={(x, y, uid, m, cid) =>
+              setVoiceUserCtx({ x, y, userId: uid, userInfo: m, currentChannelId: cid })
+            }
+            onCreateInCategory={(type, parent) => startCreate(type, parent)}
+            dragId={dragId}
+            setDragId={setDragId}
+            dropTarget={dropTarget}
+            setDropTarget={setDropTarget}
+            onDrop={handleDrop}
+            router={router}
+            serverId={server.id}
+          />
+        ))}
       </div>
 
       <SearchBarButton />
@@ -264,21 +375,83 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
         />
       )}
 
-      {ctx && (() => {
+      {createType && (
+        <CreateChannelModal
+          serverId={server.id}
+          initialType={createType}
+          parentId={createParent}
+          onClose={() => { setCreateType(null); setCreateParent(null); }}
+        />
+      )}
+
+      {categoryCtx && (() => {
+        const cat = categoryCtx.channel;
         const items: MenuItem[] = [
-          { icon: "fa-hashtag", label: "Открыть", onClick: () => ctx.channel.type === "voice" ? onOpenVoice(ctx.channel.id) : onPickChannel(ctx.channel.id) },
+          { icon: "fa-copy", label: "Скопировать ID", onClick: () => navigator.clipboard?.writeText(cat.id) },
+        ];
+        if (has("MANAGE_CHANNELS")) {
+          items.push({ separator: true, label: "" } as MenuItem);
+          items.push({ icon: "fa-hashtag", label: "Создать текстовый канал", onClick: () => startCreate("text", cat.id) });
+          items.push({ icon: "fa-volume-high", label: "Голосовой канал", onClick: () => startCreate("voice", cat.id) });
+          items.push({ icon: "fa-comments", label: "Форум", onClick: () => startCreate("forum", cat.id) });
+        }
+        if (has("MANAGE_ROLES") || has("MANAGE_SERVER")) {
+          items.push({ separator: true, label: "" } as MenuItem);
+          items.push({ icon: "fa-shield-halved", label: "Права доступа", onClick: () => setPermsModal(cat) });
+        }
+        if (has("MANAGE_CHANNELS")) {
+          items.push({ separator: true, label: "" } as MenuItem);
+          items.push({
+            icon: "fa-trash", label: "Удалить категорию", danger: true,
+            onClick: async () => {
+              if (!confirm(`Удалить категорию «${cat.name}»? Каналы внутри сохранятся.`)) return;
+              try { await channelsApi.delete(server.id, cat.id); qc.invalidateQueries({ queryKey: ["channels", server.id] }); } catch {}
+            },
+          });
+        }
+        return <ContextMenu x={categoryCtx.x} y={categoryCtx.y} items={items} onClose={() => setCategoryCtx(null)} />;
+      })()}
+
+      {emptyCtx && (() => {
+        const items: MenuItem[] = [];
+        items.push({ icon: "fa-layer-group", label: "Создать категорию", onClick: () => startCreate("category", null) });
+        items.push({ icon: "fa-hashtag", label: "Текстовый канал", onClick: () => startCreate("text", emptyCtx.parentId) });
+        items.push({ icon: "fa-volume-high", label: "Голосовой канал", onClick: () => startCreate("voice", emptyCtx.parentId) });
+        items.push({ icon: "fa-comments", label: "Форум", onClick: () => startCreate("forum", emptyCtx.parentId) });
+        return <ContextMenu x={emptyCtx.x} y={emptyCtx.y} items={items} onClose={() => setEmptyCtx(null)} />;
+      })()}
+
+      {ctx && (() => {
+        const iconName = ctx.channel.type === "voice" ? "fa-volume-high"
+          : ctx.channel.type === "forum" ? "fa-comments" : "fa-hashtag";
+        const items: MenuItem[] = [
+          { icon: iconName, label: "Открыть", onClick: () => ctx.channel.type === "voice" ? onOpenVoice(ctx.channel.id) : onPickChannel(ctx.channel.id) },
           { icon: "fa-copy", label: "Скопировать ID", onClick: () => navigator.clipboard?.writeText(ctx.channel.id) },
         ];
         if (has("MANAGE_ROLES") || has("MANAGE_SERVER")) {
           items.push({ separator: true, label: "" } as MenuItem);
-          items.push({ icon: "fa-shield-halved", label: "Расширенные права", onClick: () => setPermsModal(ctx.channel) });
+          items.push({ icon: "fa-shield-halved", label: "Права доступа", onClick: () => setPermsModal(ctx.channel) });
         }
         if (has("MANAGE_CHANNELS")) {
           if (ctx.channel.type !== "voice") {
             items.push({ icon: "fa-plug", label: "Вебхуки", onClick: () => setWebhooksModal(ctx.channel) });
           }
-          items.push({ icon: "fa-pen", label: "Редактировать канал", onClick: () => router.push(`/servers/${server.id}/settings/channels`) });
-          items.push({ icon: "fa-trash", label: "Удалить канал", danger: true, onClick: () => router.push(`/servers/${server.id}/settings/channels`) });
+          items.push({ separator: true, label: "" } as MenuItem);
+          items.push({
+            icon: "fa-pen", label: "Переименовать канал",
+            onClick: async () => {
+              const name = prompt("Новое название канала", ctx.channel.name);
+              if (!name || name.trim() === ctx.channel.name) return;
+              try { await channelsApi.update(server.id, ctx.channel.id, { name: name.trim() }); qc.invalidateQueries({ queryKey: ["channels", server.id] }); } catch {}
+            },
+          });
+          items.push({
+            icon: "fa-trash", label: "Удалить канал", danger: true,
+            onClick: async () => {
+              if (!confirm(`Удалить канал «${ctx.channel.name}»?`)) return;
+              try { await channelsApi.delete(server.id, ctx.channel.id); qc.invalidateQueries({ queryKey: ["channels", server.id] }); } catch {}
+            },
+          });
         }
         return <ContextMenu x={ctx.x} y={ctx.y} items={items} onClose={() => setCtx(null)} />;
       })()}
@@ -401,5 +574,200 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
         </div>
       )}
     </div>
+  );
+}
+
+// ── Sidebar item renderer (category + channel, both draggable) ─────────
+
+interface SidebarItemProps {
+  channel: Channel;
+  children: Channel[];
+  activeChannelId: string | null;
+  collapsed: Record<string, boolean>;
+  setCollapsed: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  voicePresence: Record<string, string[]>;
+  membersById: Map<string, any>;
+  user: any;
+  canMove: boolean;
+  canManage: boolean;
+  onPickChannel: (id: string) => void;
+  onOpenVoice: (id: string) => void;
+  onCtx: (x: number, y: number, ch: Channel) => void;
+  onVoiceUserCtx: (x: number, y: number, uid: string, m: any, cid: string) => void;
+  onCreateInCategory: (type: "text" | "voice" | "forum", parentId: string) => void;
+  dragId: string | null;
+  setDragId: (id: string | null) => void;
+  dropTarget: { id: string | null; pos: "before" | "after" | "into" } | null;
+  setDropTarget: (t: { id: string | null; pos: "before" | "after" | "into" } | null) => void;
+  onDrop: (src: string, target: string | null, pos: "before" | "after" | "into") => void;
+  router: any;
+  serverId: string;
+}
+
+function SidebarItem(props: SidebarItemProps) {
+  const { channel: ch, children, canManage, onCreateInCategory } = props;
+  const isCategory = ch.type === "category";
+  const isVoice = ch.type === "voice";
+  const isForum = ch.type === "forum";
+  const isText = ch.type === "text" || ch.type === "announcement";
+
+  if (isCategory) {
+    const isCollapsed = !!props.collapsed[`cat:${ch.id}`];
+    const hl = props.dropTarget?.id === ch.id ? props.dropTarget.pos : null;
+    return (
+      <div
+        data-ch-item
+        draggable={canManage}
+        onDragStart={(e) => {
+          if (!canManage) return;
+          e.dataTransfer.setData("hiroo/channel", ch.id);
+          e.dataTransfer.effectAllowed = "move";
+          props.setDragId(ch.id);
+        }}
+        onDragEnd={() => { props.setDragId(null); props.setDropTarget(null); }}
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes("hiroo/channel")) return;
+          e.preventDefault();
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          const y = e.clientY - r.top;
+          // Top 10px = before, bottom 10px = after, middle = into.
+          if (y < 10) props.setDropTarget({ id: ch.id, pos: "before" });
+          else if (y > r.height - 10) props.setDropTarget({ id: ch.id, pos: "after" });
+          else props.setDropTarget({ id: ch.id, pos: "into" });
+        }}
+        onDragLeave={() => props.setDropTarget(props.dropTarget?.id === ch.id ? null : props.dropTarget)}
+        onDrop={(e) => {
+          const src = e.dataTransfer.getData("hiroo/channel");
+          e.preventDefault();
+          const pos = props.dropTarget?.id === ch.id ? props.dropTarget.pos : "after";
+          props.setDropTarget(null);
+          if (src && src !== ch.id) props.onDrop(src, ch.id, pos);
+        }}
+        style={{ position: "relative", marginBottom: 2 }}
+      >
+        {hl === "before" && <DropLine />}
+        <div
+          onClick={() => props.setCollapsed((s) => ({ ...s, [`cat:${ch.id}`]: !s[`cat:${ch.id}`] }))}
+          onContextMenu={(e) => { e.preventDefault(); props.onCtx(e.clientX, e.clientY, ch); }}
+          style={{
+            padding: "10px 6px 6px 4px",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            color: "var(--text-2)", cursor: "pointer",
+            background: hl === "into" ? "rgba(124,92,255,0.15)" : "transparent",
+            borderRadius: 6,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.6, flex: 1, minWidth: 0 }}>
+            <i className={`fa-solid fa-chevron-${isCollapsed ? "right" : "down"}`} style={{ fontSize: 9, marginRight: 3 }} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ch.name}</span>
+          </div>
+          {canManage && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onCreateInCategory("text", ch.id); }}
+              title="Создать канал в этой категории"
+              style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-2)", padding: 2 }}
+            >
+              <i className="fa-solid fa-plus" style={{ fontSize: 12, opacity: 0.6 }} />
+            </button>
+          )}
+        </div>
+        {!isCollapsed && children.map((c) => (
+          <SidebarItem key={c.id} {...props} channel={c} children={[]} />
+        ))}
+        {hl === "after" && <DropLine />}
+      </div>
+    );
+  }
+
+  // Channel row (text / voice / forum)
+  const isActive = ch.id === props.activeChannelId;
+  const participants = isVoice ? (props.voicePresence[`channel:${ch.id}`] ?? []) : [];
+  const Icon = () => isVoice
+    ? <i className="fa-solid fa-volume-high" style={{ fontSize: 15 }} />
+    : isForum
+    ? <i className="fa-solid fa-comments" style={{ fontSize: 15 }} />
+    : ch.is_private
+    ? <i className="fa-solid fa-lock" style={{ fontSize: 15 }} />
+    : <i className="fa-solid fa-hashtag" style={{ fontSize: 15 }} />;
+  const hl = props.dropTarget?.id === ch.id ? props.dropTarget.pos : null;
+
+  return (
+    <div
+      data-ch-item
+      draggable={canManage}
+      onDragStart={(e) => {
+        if (!canManage) return;
+        e.dataTransfer.setData("hiroo/channel", ch.id);
+        e.dataTransfer.effectAllowed = "move";
+        props.setDragId(ch.id);
+      }}
+      onDragEnd={() => { props.setDragId(null); props.setDropTarget(null); }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("hiroo/channel")) return;
+        e.preventDefault();
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const y = e.clientY - r.top;
+        props.setDropTarget({ id: ch.id, pos: y < r.height / 2 ? "before" : "after" });
+      }}
+      onDragLeave={() => props.setDropTarget(props.dropTarget?.id === ch.id ? null : props.dropTarget)}
+      onDrop={(e) => {
+        const src = e.dataTransfer.getData("hiroo/channel");
+        e.preventDefault();
+        const pos = props.dropTarget?.id === ch.id ? props.dropTarget.pos : "after";
+        props.setDropTarget(null);
+        if (src && src !== ch.id) props.onDrop(src, ch.id, pos as any);
+      }}
+      style={{ position: "relative" }}
+    >
+      {hl === "before" && <DropLine />}
+      <div
+        onClick={() => {
+          if (isVoice) props.onOpenVoice(ch.id);
+          else if (isForum) props.router.push(`/servers/${props.serverId}/forum/${ch.id}`);
+          else props.onPickChannel(ch.id);
+        }}
+        onContextMenu={(e) => { e.preventDefault(); props.onCtx(e.clientX, e.clientY, ch); }}
+        style={{
+          padding: "6px 8px", borderRadius: 6,
+          display: "flex", alignItems: "center", gap: 7, cursor: "pointer",
+          background: isActive ? "var(--bg-active)" : "transparent",
+          color: isActive ? "var(--text-0)" : "var(--text-2)",
+          fontSize: 14, fontWeight: isActive ? 500 : 400,
+        }}
+        onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = "var(--bg-hover)"; }}
+        onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+      >
+        <Icon />
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ch.name}</span>
+        {isVoice && participants.length > 0 && (
+          <span style={{ fontSize: 10, color: "var(--text-3)", fontFamily: "Geist Mono" }}>{participants.length}</span>
+        )}
+      </div>
+      {isVoice && participants.map((uid) => {
+        const m = props.membersById.get(uid);
+        const name = m?.nickname || m?.user.display_name || m?.user.username || uid.slice(0, 6);
+        return (
+          <div
+            key={uid}
+            onContextMenu={(e) => { e.preventDefault(); props.onVoiceUserCtx(e.clientX, e.clientY, uid, m, ch.id); }}
+            style={{ padding: "3px 8px 3px 30px", display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--text-1)" }}
+          >
+            <Avatar name={m?.user.username ?? name} size={20} shape="circle" avatarUrl={m?.user.avatar_url ?? null} />
+            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+          </div>
+        );
+      })}
+      {hl === "after" && <DropLine />}
+    </div>
+  );
+}
+
+function DropLine() {
+  return (
+    <div style={{
+      position: "absolute", left: 2, right: 2, height: 0,
+      borderTop: "2px solid var(--accent)", pointerEvents: "none",
+      zIndex: 5,
+    }} />
   );
 }
