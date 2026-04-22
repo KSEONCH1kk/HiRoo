@@ -18,24 +18,75 @@ log = logging.getLogger("hiroo.bot")
 
 
 class CommandContext:
-    """Passed to slash command handlers. Wraps the triggering message."""
-    def __init__(self, bot: "Bot", message: Message, args: dict):
+    """Passed to slash command / interaction handlers."""
+    def __init__(self, bot: "Bot", *, message: Message | None = None,
+                 interaction: dict | None = None, args: dict | None = None):
         self.bot = bot
         self.message = message
-        self.args = args
-        self.channel_id = message.channel_id
-        self.dm_id = message.dm_id
+        self.interaction = interaction
+        self.args = args or {}
+        if interaction:
+            self.channel_id = interaction.get("channel_id")
+            self.dm_id = interaction.get("dm_id")
+            self.interaction_id = interaction.get("id")
+        elif message:
+            self.channel_id = message.channel_id
+            self.dm_id = message.dm_id
+            self.interaction_id = None
+        else:
+            self.channel_id = self.dm_id = self.interaction_id = None
 
     @property
     def author(self) -> Optional[User]:
-        return self.message.author
+        if self.message:
+            return self.message.author
+        if self.interaction:
+            u = self.interaction.get("user") or {}
+            return User(
+                id=u.get("id", ""), username=u.get("username", ""),
+                display_name=u.get("display_name"), avatar_url=u.get("avatar_url"),
+                bot=u.get("bot", False), _raw=u,
+            )
+        return None
 
-    async def respond(self, content: str = "", *, embed=None, components=None) -> dict:
+    async def respond(self, content: str = "", *, embed=None, components=None, ephemeral: bool = False) -> dict:
+        """For interactions — uses the interaction callback endpoint.
+        For plain messages — just sends a message in the source channel."""
+        if self.interaction_id:
+            body = {
+                "type": 4, "content": content, "ephemeral": ephemeral,
+            }
+            if embed:
+                body["embeds"] = [embed.to_dict() if hasattr(embed, "to_dict") else embed]
+            if components:
+                body["components"] = [c.to_dict() if hasattr(c, "to_dict") else c for c in components]
+            return await self.bot.http.request(
+                "POST", f"/api/interactions/{self.interaction_id}/callback", json=body,
+            )
         return await self.bot.http.send_message(
             channel_id=self.channel_id, dm_id=self.dm_id,
             content=content,
             embeds=[embed] if embed else None,
             components=components,
+        )
+
+    async def defer(self) -> None:
+        if not self.interaction_id:
+            return
+        await self.bot.http.request(
+            "POST", f"/api/interactions/{self.interaction_id}/callback", json={"type": 5},
+        )
+
+    async def followup(self, content: str = "", *, embed=None, components=None) -> dict:
+        if not self.interaction_id:
+            return await self.respond(content, embed=embed, components=components)
+        body = {"content": content}
+        if embed:
+            body["embeds"] = [embed.to_dict() if hasattr(embed, "to_dict") else embed]
+        if components:
+            body["components"] = [c.to_dict() if hasattr(c, "to_dict") else c for c in components]
+        return await self.bot.http.request(
+            "POST", f"/api/interactions/{self.interaction_id}/followup", json=body,
         )
 
 
@@ -110,6 +161,14 @@ class Bot:
             return fn
         return deco
 
+    # ── Voice ────────────────────────────────────────────────────────
+
+    async def connect_voice(self, *, channel_id: str | None = None, dm_id: str | None = None):
+        """Join a voice channel or DM call. Returns a `VoiceConnection` you
+        can use to publish audio. Requires `pip install livekit`."""
+        from .voice import connect_voice as _connect
+        return await _connect(self, channel_id=channel_id, dm_id=dm_id)
+
     # ── Event dispatch (called by the gateway) ────────────────────────
 
     async def _dispatch(self, event: str, data: dict) -> None:
@@ -174,11 +233,37 @@ class Bot:
                             else: kwargs[o["name"]] = val
                         except Exception:
                             kwargs[o["name"]] = val
-                    ctx = CommandContext(self, payload, kwargs)
+                    ctx = CommandContext(self, message=payload, args=kwargs)
                     try:
                         await cmd["handler"](ctx, **kwargs)
                     except Exception:
                         log.exception("command /%s failed", first)
+
+        # Gateway-native interaction events (buttons, selects, picker-invoked slash commands).
+        if event == "interaction_create":
+            inter = data or {}
+            itype = inter.get("type")
+            if itype == "component":
+                cid = inter.get("custom_id") or ""
+                h = self._component_handlers.get(cid)
+                if h:
+                    ctx = CommandContext(self, interaction=inter, args=inter.get("data") or {})
+                    try:
+                        res = h(ctx)
+                        if asyncio.iscoroutine(res):
+                            await res
+                    except Exception:
+                        log.exception("component %s failed", cid)
+            elif itype == "command":
+                name = inter.get("command_name") or ""
+                cmd = self._commands.get(name)
+                if cmd:
+                    opts = (inter.get("data") or {}).get("options") or {}
+                    ctx = CommandContext(self, interaction=inter, args=opts)
+                    try:
+                        await cmd["handler"](ctx, **opts)
+                    except Exception:
+                        log.exception("slash /%s via interaction failed", name)
 
         for h in self._event_handlers.get(event, []):
             try:

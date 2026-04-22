@@ -5,8 +5,10 @@ from app.schemas.user import UserPublic
 
 
 class MessageCreate(BaseModel):
-    content: str = Field(..., min_length=1, max_length=4000)
+    content: str = Field("", max_length=4000)
     reply_to_id: uuid.UUID | None = None
+    embeds: list["Embed"] | None = None
+    components: list[dict] | None = None
 
 
 class MessageUpdate(BaseModel):
@@ -80,6 +82,8 @@ class MessageResponse(BaseModel):
     webhook_name: str | None = None
     webhook_avatar_url: str | None = None
     embeds: list[Embed] | None = None
+    components: list[dict] | None = None
+    application_id: uuid.UUID | None = None
 
 
 class DMMessageCreate(BaseModel):

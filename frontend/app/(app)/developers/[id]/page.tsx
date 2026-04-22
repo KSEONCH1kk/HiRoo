@@ -218,7 +218,20 @@ export default function ApplicationPage() {
 
           {app.has_bot && (
             <Field label="Invite бота на сервер">
-              <CodeBlock value={`${typeof window !== "undefined" ? window.location.origin : ""}/oauth2/authorize?client_id=${app.client_id}&scope=${encodeURIComponent("bot applications.commands")}`} />
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <a
+                  href={`/oauth2/authorize?client_id=${app.client_id}&scope=${encodeURIComponent("bot applications.commands")}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ textDecoration: "none" }}
+                >
+                  <Button>
+                    <i className="fa-solid fa-plus" style={{ marginRight: 6 }} />
+                    Пригласить
+                  </Button>
+                </a>
+                <CodeBlock value={`${typeof window !== "undefined" ? window.location.origin : ""}/oauth2/authorize?client_id=${app.client_id}&scope=${encodeURIComponent("bot applications.commands")}`} />
+              </div>
             </Field>
           )}
         </Section>

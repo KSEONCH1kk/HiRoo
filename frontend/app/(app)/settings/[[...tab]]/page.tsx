@@ -14,6 +14,7 @@ const TABS = [
   { id: "appearance", label: "Внешний вид", icon: "fa-palette" },
   { id: "privacy", label: "Конфиденциальность", icon: "fa-lock" },
   { id: "notifications", label: "Уведомления", icon: "fa-bell" },
+  { id: "developers", label: "Developers", icon: "fa-code", external: "/developers" },
 ];
 
 export default function SettingsPage({ params }: { params: { tab?: string[] } }) {
@@ -49,7 +50,7 @@ export default function SettingsPage({ params }: { params: { tab?: string[] } })
           {TABS.map((t) => (
             <div
               key={t.id}
-              onClick={() => router.push(`/settings/${t.id}`)}
+              onClick={() => router.push((t as any).external ?? `/settings/${t.id}`)}
               style={{
                 display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
                 background: activeTab === t.id ? "var(--bg-active)" : "transparent",

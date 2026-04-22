@@ -227,6 +227,37 @@ async def token_exchange(
     )
 
 
+@router.post("/introspect")
+async def introspect_token(
+    token: str = Form(...),
+    client_id: str = Form(...),
+    client_secret: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """RFC 7662 token introspection — tells a resource server whether a given
+    access/refresh token is still valid and who it belongs to."""
+    res = await db.execute(select(Application).where(Application.client_id == client_id))
+    app = res.scalar_one_or_none()
+    if not app or not verify_secret(client_secret, app.client_secret_hash):
+        raise HTTPException(401, "Invalid client credentials")
+    h = hash_secret(token)
+    tr = await db.execute(select(OAuth2Token).where(
+        OAuth2Token.application_id == app.id,
+        (OAuth2Token.access_token_hash == h) | (OAuth2Token.refresh_token_hash == h),
+    ))
+    tok = tr.scalar_one_or_none()
+    if not tok or tok.revoked_at is not None or tok.expires_at < datetime.now(timezone.utc):
+        return {"active": False}
+    return {
+        "active": True,
+        "scope": tok.scope,
+        "client_id": app.client_id,
+        "username": None,
+        "sub": str(tok.user_id),
+        "exp": int(tok.expires_at.timestamp()),
+    }
+
+
 @router.post("/revoke")
 async def revoke_token(
     token: str = Form(...),
@@ -249,12 +280,11 @@ async def revoke_token(
 
 
 async def oauth2_bearer(
-    authorization: str | None = None,
-    db: AsyncSession = None,
+    authorization: str | None,
+    db: AsyncSession,
     required_scope: str | None = None,
 ) -> tuple[User, OAuth2Token]:
-    """Resolve an OAuth2 Bearer token to (user, token). `authorization` should
-    be the raw `Authorization` header value."""
+    """Resolve an OAuth2 Bearer token to (user, token)."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "Bearer token required")
     raw = authorization[7:].strip()

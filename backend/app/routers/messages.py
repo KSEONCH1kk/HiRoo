@@ -84,6 +84,8 @@ def _build_response(msg: Message, current_user_id: uuid.UUID) -> MessageResponse
         webhook_name=getattr(msg, "webhook_name", None),
         webhook_avatar_url=getattr(msg, "webhook_avatar_url", None),
         embeds=getattr(msg, "embeds", None),
+        components=getattr(msg, "components", None),
+        application_id=getattr(msg, "application_id", None),
     )
 
 
@@ -148,11 +150,24 @@ async def send_message(
     if _re.search(r"(^|[^\w])@(everyone|all)\b", content_for_checks, _re.IGNORECASE) and not (perms & Permissions.MENTION_EVERYONE):
         raise HTTPException(status_code=403, detail="Нет права упоминать @everyone")
 
+    # Bots may attach rich components + embeds and tag the message with their
+    # application_id so the frontend can route button clicks back to them.
+    application_id = None
+    if getattr(current_user, "is_bot", False):
+        from app.models.application import Bot as _Bot
+        br = await db.execute(select(_Bot).where(_Bot.user_id == current_user.id))
+        b = br.scalar_one_or_none()
+        if b:
+            application_id = b.application_id
+
     msg = Message(
         channel_id=channel_id,
         author_id=current_user.id,
-        content=body.content,
+        content=body.content or "",
         reply_to_id=body.reply_to_id,
+        embeds=[e.model_dump(mode="json") for e in body.embeds] if body.embeds else None,
+        components=body.components,
+        application_id=application_id,
     )
     db.add(msg)
     await db.flush()

@@ -21,15 +21,18 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, Set
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.deps import get_current_active_user, get_db
 
 from app.database import AsyncSessionLocal as async_session
 from app.models.application import Application, Bot
 from app.models.server import ServerMember
 from app.models.user import User
 from app.services.app_tokens import hash_secret
-from app.services.intents import Intents, event_requires_intent
+from app.services.intents import Intents, PRIVILEGED_INTENTS, event_requires_intent
 
 log = logging.getLogger("hiroo.bot.gateway")
 router = APIRouter(prefix="/api/bot", tags=["bot-gateway"])
@@ -108,6 +111,48 @@ async def _send(ws: WebSocket, payload: dict) -> None:
         pass
 
 
+@router.get("/gateway")
+async def gateway_info():
+    """Public WSS endpoint hint. Client libraries call this first."""
+    return {"url": "wss://hiroo.intave.tech/api/bot/gateway"}
+
+
+@router.get("/gateway/bot")
+async def gateway_bot_info(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Authenticated variant — returns recommended shard count & session
+    limits. Client must send `Authorization: Bot <token>`."""
+    authz = request.headers.get("authorization", "")
+    if not authz.lower().startswith("bot "):
+        raise HTTPException(401, "Bot auth required")
+    raw = authz[4:].strip()
+    from app.services.app_tokens import hash_secret
+    res = await db.execute(select(Bot).where(Bot.token_hash == hash_secret(raw)))
+    bot = res.scalar_one_or_none()
+    if not bot:
+        raise HTTPException(401, "Invalid bot token")
+
+    # Rough recommendation: 1 shard per ~1000 guilds, min 1.
+    g_count = (await db.execute(
+        select(ServerMember).where(ServerMember.user_id == bot.user_id)
+    )).scalars()
+    guilds = len(list(g_count))
+    recommended = max(1, (guilds + 999) // 1000)
+
+    return {
+        "url": "wss://hiroo.intave.tech/api/bot/gateway",
+        "shards": recommended,
+        "session_start_limit": {
+            "total": 1000,
+            "remaining": 1000,
+            "reset_after": 86400_000,
+            "max_concurrency": 1,
+        },
+    }
+
+
 @router.websocket("/gateway")
 async def bot_gateway(ws: WebSocket):
     await ws.accept()
@@ -140,6 +185,17 @@ async def bot_gateway(ws: WebSocket):
             await ws.close(code=4004)
             return
         app, bot = auth
+
+        # Reject privileged intents the application hasn't explicitly enabled.
+        wanted_privileged = intents & int(PRIVILEGED_INTENTS)
+        allowed_privileged = int(app.intents) & int(PRIVILEGED_INTENTS)
+        if wanted_privileged & ~allowed_privileged:
+            await _send(ws, {
+                "op": OP_INVALID_SESSION, "d": False,
+                "error": "disallowed_privileged_intents",
+            })
+            await ws.close(code=4014)
+            return
 
         all_guilds = await _load_guilds(bot.user_id)
         my_guilds = [

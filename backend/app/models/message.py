@@ -27,6 +27,8 @@ class Message(Base):
     webhook_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     webhook_avatar_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     embeds: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    components: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    application_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

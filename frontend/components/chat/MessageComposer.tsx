@@ -391,11 +391,29 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
           guildId={serverId}
           dmId={dmId}
           query={value.slice(1).split(" ")[0]}
-          onSelect={(cmd) => {
+          onSelect={async (cmd) => {
+            // If the command has no required args, fire the interaction
+            // immediately instead of leaving raw text in the composer.
+            const hasRequired = cmd.options.some((o) => o.required);
+            if (!hasRequired) {
+              try {
+                const { interactionsApi } = await import("@/lib/api");
+                await interactionsApi.send({
+                  type: "command",
+                  command_id: cmd.id,
+                  command_name: cmd.name,
+                  application_id: cmd.application_id,
+                  channel_id: channelId ?? null,
+                  dm_id: dmId ?? null,
+                  guild_id: serverId ?? null,
+                  options: {},
+                });
+                setValue("");
+                return;
+              } catch {/* fall through to text insert */}
+            }
             const base = `/${cmd.name}`;
-            // Insert the command; keep trailing space if the command has options so
-            // the user can start typing arguments immediately.
-            const next = base + (cmd.options.length > 0 ? " " : " ");
+            const next = base + " ";
             setValue(next);
             setTimeout(() => {
               const el = textareaRef.current;

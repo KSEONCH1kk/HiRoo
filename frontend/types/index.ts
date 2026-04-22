@@ -112,6 +112,8 @@ export interface Message {
   webhook_name: string | null;
   webhook_avatar_url: string | null;
   embeds: Embed[] | null;
+  components?: any[] | null;
+  application_id?: string | null;
 }
 
 export interface DMParticipant {

@@ -449,3 +449,24 @@ export const oauth2Api = {
     return api.post<{ location: string }>(`/api/oauth2/authorize`, fd).then((r) => r.data);
   },
 };
+
+// ── Interactions ─────────────────────────────────────────────────────────
+
+export interface InteractionCreatePayload {
+  type: "component" | "command";
+  custom_id?: string;
+  command_id?: string | null;
+  command_name?: string;
+  channel_id?: string | null;
+  dm_id?: string | null;
+  message_id?: string | null;
+  guild_id?: string | null;
+  application_id?: string | null;
+  values?: string[];
+  options?: Record<string, unknown>;
+}
+
+export const interactionsApi = {
+  send: (body: InteractionCreatePayload) =>
+    api.post<{ id: string; correlation_id: string }>(`/api/interactions`, body).then((r) => r.data),
+};

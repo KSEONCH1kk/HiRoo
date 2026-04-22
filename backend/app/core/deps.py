@@ -15,6 +15,26 @@ from app.models.role import Role, MemberRole, Permissions
 from app.models.channel_permission import ChannelRolePermission
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _is_bot_scheme(raw: str) -> bool:
+    return raw.lower().startswith("bot ") or (len(raw) > 40 and raw.count(".") == 2 and not raw.startswith("ey"))
+
+
+async def _auth_bot(raw: str, db: AsyncSession) -> User | None:
+    """If `raw` is a bot token (either `Bot xxx` or a bare token produced by
+    `generate_bot_token`), return the bot user; else None."""
+    from app.models.application import Bot
+    from app.services.app_tokens import hash_secret
+    token = raw[4:].strip() if raw.lower().startswith("bot ") else raw
+    if not token:
+        return None
+    res = await db.execute(select(Bot).where(Bot.token_hash == hash_secret(token)))
+    bot = res.scalar_one_or_none()
+    if not bot:
+        return None
+    ur = await db.execute(select(User).where(User.id == bot.user_id))
+    return ur.scalar_one_or_none()
 _redis_pool: aioredis.Redis | None = None
 
 
@@ -26,32 +46,47 @@ async def get_redis() -> AsyncGenerator[aioredis.Redis, None]:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> User:
     exc = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+
+    # Accept `Authorization: Bot <token>` for bot users. HTTPBearer only
+    # recognizes "Bearer", so we probe the raw header as well.
+    raw_header = request.headers.get("authorization", "")
+    if raw_header.lower().startswith("bot "):
+        bot_user = await _auth_bot(raw_header, db)
+        if bot_user is None:
+            raise exc
+        return bot_user
+
     if not credentials:
         raise exc
 
     token = credentials.credentials
+
+    # Try JWT first.
     payload = verify_access_token(token)
-    if not payload:
-        raise exc
+    if payload:
+        if await redis.get(f"blacklist:{token}"):
+            raise exc
+        user_id = payload.get("sub")
+        if not user_id:
+            raise exc
+        result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise exc
+        return user
 
-    # Check blacklist
-    if await redis.get(f"blacklist:{token}"):
-        raise exc
+    # Fall back to bot token passed via "Bearer" by misconfigured clients.
+    bot_user = await _auth_bot(token, db)
+    if bot_user is not None:
+        return bot_user
 
-    user_id = payload.get("sub")
-    if not user_id:
-        raise exc
-
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise exc
-    return user
+    raise exc
 
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:

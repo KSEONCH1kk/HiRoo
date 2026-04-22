@@ -13,6 +13,7 @@ from app.models.ban import ServerBan
 from app.models.application import (
     Application, Bot, BotCommand, OAuth2AuthorizationCode, OAuth2Token,
 )
+from app.models.interaction import Interaction
 
 __all__ = [
     "User", "Server", "ServerMember", "Channel",
@@ -23,4 +24,5 @@ __all__ = [
     "ChannelRolePermission", "Webhook", "ServerBan",
     "Application", "Bot", "BotCommand",
     "OAuth2AuthorizationCode", "OAuth2Token",
+    "Interaction",
 ]

@@ -113,6 +113,16 @@ class ConnectionManager:
             tasks.append(self.send_to_user(uid, data))
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        # Mirror the event to any bots in this guild via the bot gateway.
+        try:
+            import uuid as _uuid
+            from app.routers.bot_gateway import dispatch_to_all_bots_in_guild
+            evt = data.get("event")
+            payload = data.get("data") or {}
+            if evt:
+                await dispatch_to_all_bots_in_guild(_uuid.UUID(server_id), evt, payload)
+        except Exception:
+            pass
 
     async def broadcast_to_users(self, user_ids: list[str], data: dict, exclude_user: str | None = None):
         tasks = []
@@ -122,6 +132,27 @@ class ConnectionManager:
             tasks.append(self.send_to_user(uid, data))
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        # For DM broadcasts, dispatch to any bot that's a DM participant.
+        try:
+            from app.routers.bot_gateway import dispatch_to_bot
+            from sqlalchemy import select as _select
+            from app.database import AsyncSessionLocal
+            from app.models.user import User as _User
+            evt = data.get("event")
+            payload = data.get("data") or {}
+            if evt and user_ids:
+                import uuid as _uuid
+                async with AsyncSessionLocal() as db:
+                    rows = await db.execute(
+                        _select(_User.id).where(
+                            _User.id.in_([_uuid.UUID(u) for u in user_ids]),
+                            _User.is_bot.is_(True),
+                        )
+                    )
+                    for (bot_uid,) in rows.all():
+                        await dispatch_to_bot(bot_uid, evt, payload)
+        except Exception:
+            pass
 
     def is_online(self, user_id: str) -> bool:
         return user_id in self._connections and bool(self._connections[user_id])

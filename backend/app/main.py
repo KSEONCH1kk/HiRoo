@@ -20,6 +20,7 @@ from app.routers import applications as applications_router
 from app.routers import oauth2 as oauth2_router
 from app.routers import commands as commands_router
 from app.routers import bot_gateway as bot_gateway_router
+from app.routers import interactions as interactions_router
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 
@@ -72,6 +73,8 @@ MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_platform_admin BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT FALSE",
     "CREATE INDEX IF NOT EXISTS ix_users_is_bot ON users (is_bot)",
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS components JSONB",
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS application_id UUID",
 ]
 
 
@@ -146,6 +149,7 @@ app.include_router(applications_router.router)
 app.include_router(oauth2_router.router)
 app.include_router(commands_router.router)
 app.include_router(bot_gateway_router.router)
+app.include_router(interactions_router.router)
 
 
 @app.get("/health")

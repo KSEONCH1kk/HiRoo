@@ -9,6 +9,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useChatStore } from "@/store/chatStore";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { Message as MessageType } from "@/types";
+import { MessageComponents } from "./MessageComponents";
 
 interface Props {
   grouped?: boolean;
@@ -215,7 +216,17 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
               </div>
             </div>
           ) : (
-            <MessageContent content={m.content} embeds={m.embeds} />
+            <>
+              <MessageContent content={m.content} embeds={m.embeds} />
+              {m.components && m.components.length > 0 && (
+                <MessageComponents
+                  components={m.components as any}
+                  messageId={m.id}
+                  channelId={m.channel_id}
+                  applicationId={m.application_id ?? null}
+                />
+              )}
+            </>
           )}
           {/* Reactions */}
           {m.reactions.length > 0 && (

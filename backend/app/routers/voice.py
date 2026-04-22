@@ -32,6 +32,19 @@ async def voice_token(
     if not settings.LIVEKIT_URL or not settings.LIVEKIT_API_KEY or not settings.LIVEKIT_API_SECRET:
         raise HTTPException(status_code=503, detail="LiveKit не сконфигурирован на сервере")
 
+    # Bots that request a voice token implicitly declare voice support. Flip
+    # the capability flag once so the /developers UI and badges reflect it.
+    if getattr(current_user, "is_bot", False):
+        from app.models.application import Application as _App, Bot as _Bot
+        ar = await db.execute(
+            select(_App).join(_Bot, _Bot.application_id == _App.id)
+            .where(_Bot.user_id == current_user.id)
+        )
+        _app = ar.scalar_one_or_none()
+        if _app and not _app.supports_voice:
+            _app.supports_voice = True
+            await db.flush()
+
     # Authorize: user must belong to the referenced room
     if room.startswith("channel:"):
         try:
