@@ -14,7 +14,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.rate_limit import limiter
 from app.middleware.security import SecurityHeadersMiddleware
 from app.middleware.logging import LoggingMiddleware
-from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy
+from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy, qr_auth
 from app.routers import webhooks as webhooks_router
 from app.routers import applications as applications_router
 from app.routers import oauth2 as oauth2_router
@@ -197,6 +197,7 @@ app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads"
 
 # Routers
 app.include_router(auth.router)
+app.include_router(qr_auth.router)
 app.include_router(users.router)
 app.include_router(servers.router)
 app.include_router(channels.router)

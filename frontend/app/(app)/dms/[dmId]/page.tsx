@@ -91,7 +91,7 @@ export default function DMPage({ params }: { params: { dmId: string } }) {
         ) : others[0] ? (
           <Avatar
             name={others[0].display_name || others[0].username}
-            src={others[0].avatar_url || undefined}
+            avatarUrl={others[0].avatar_url || undefined}
             size={28}
             shape="circle"
           />

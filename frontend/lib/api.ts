@@ -74,6 +74,19 @@ export const authApi = {
   me: () => api.get<User>("/api/auth/me").then((r) => r.data),
 };
 
+// ── QR login ─────────────────────────────────────────────────
+export const qrAuthApi = {
+  start: () =>
+    api.post<{ code: string; expires_at: string; approve_url: string }>("/api/auth/qr/start")
+      .then((r) => r.data),
+  status: (code: string) =>
+    api.get<{ status: "pending" | "approved" | "expired"; access_token?: string; user?: User }>(
+      `/api/auth/qr/status`, { params: { code } },
+    ).then((r) => r.data),
+  approve: (code: string) =>
+    api.post<{ ok: boolean; message: string }>(`/api/auth/qr/approve`, { code }).then((r) => r.data),
+};
+
 // ── Users ────────────────────────────────────────────────────
 export const usersApi = {
   get: (id: string) => api.get<UserPublic>(`/api/users/${id}`).then((r) => r.data),

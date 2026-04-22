@@ -5,11 +5,15 @@ from app.schemas.user import UserPublic
 
 
 def _validate_http_url(v: str | None) -> str | None:
+    """Drop any URL whose scheme isn't http(s). Returns None for invalid values
+    so old poisoned rows (javascript:, data:text, vbscript:, bare fragments,
+    …) don't crash response serialisation. Frontend still guards with
+    `safeHref`/`safeImg` wrappers as belt-and-suspenders."""
     if v is None or v == "":
-        return v
+        return None
     low = v.strip().lower()
     if not (low.startswith("http://") or low.startswith("https://")):
-        raise ValueError("URL must start with http:// or https://")
+        return None
     return v
 
 

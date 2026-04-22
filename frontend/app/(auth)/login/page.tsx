@@ -8,6 +8,7 @@ import Link from "next/link";
 import { authApi } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { connectSocket } from "@/lib/socket";
+import { QrLoginPanel } from "@/components/auth/QrLoginPanel";
 
 const schema = z.object({
   email: z.string().email("Некорректный email"),
@@ -123,6 +124,9 @@ function LoginForm() {
             Зарегистрироваться
           </Link>
         </p>
+
+        <div style={{ height: 1, background: "var(--line)", margin: "18px 0 0" }} />
+        <QrLoginPanel />
       </div>
     </div>
   );

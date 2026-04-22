@@ -18,6 +18,7 @@ interface CapacitorGlobal {
     Haptics?: CapPlugin;
     StatusBar?: CapPlugin;
     App?: CapPlugin;
+    BarcodeScanner?: CapPlugin;
   };
 }
 

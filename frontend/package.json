@@ -32,7 +32,8 @@
     "tweetnacl": "^1.0.3",
     "tweetnacl-util": "^0.15.1",
     "tweetnacl-sealedbox-js": "^1.2.0",
-    "hls.js": "^1.5.17"
+    "hls.js": "^1.5.17",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
@@ -43,6 +44,7 @@
     "postcss": "^8.4.49",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
-    "eslint-config-next": "14.2.18"
+    "eslint-config-next": "14.2.18",
+    "@types/qrcode": "^1.5.5"
   }
 }
