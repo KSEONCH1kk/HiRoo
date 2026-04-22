@@ -224,6 +224,22 @@ async def _deliver_response(interaction: Interaction, body: InteractionCallback,
         if bot_user_id is None:
             raise HTTPException(400, "Application has no bot")
 
+        # Ephemeral responses are delivered only to the invoking user over WS —
+        # not persisted, not broadcast to the channel.
+        if body.ephemeral:
+            await manager.send_to_user(str(interaction.user_id), {
+                "event": "interaction_ephemeral",
+                "data": {
+                    "interaction_id": str(interaction.id),
+                    "content": body.content or "",
+                    "embeds": body.embeds or [],
+                    "components": body.components or [],
+                },
+            })
+            interaction.responded = True
+            await db.flush()
+            return {"ok": True, "ephemeral": True}
+
         if interaction.channel_id:
             cr = await db.execute(select(Channel).where(Channel.id == interaction.channel_id))
             ch = cr.scalar_one_or_none()
@@ -234,6 +250,8 @@ async def _deliver_response(interaction: Interaction, body: InteractionCallback,
                 author_id=bot_user_id,
                 content=body.content or "",
                 embeds=body.embeds,
+                components=body.components,
+                application_id=interaction.application_id,
             )
             db.add(msg)
             await db.flush()
@@ -249,16 +267,27 @@ async def _deliver_response(interaction: Interaction, body: InteractionCallback,
                     "server_id": str(ch.server_id),
                     "author_id": str(bot_user_id),
                     "content": msg.content,
-                    "embeds": body.embeds or [],
-                    "components": body.components or [],
+                    "reply_to_id": None,
+                    "reply_to": None,
+                    "edited_at": None,
+                    "is_deleted": False,
                     "created_at": msg.created_at.isoformat(),
                     "author": {
                         "id": str(author.id),
                         "username": author.username,
                         "display_name": author.display_name,
                         "avatar_url": author.avatar_url,
+                        "status": author.status or "online",
+                        "custom_status": author.custom_status,
                         "bot": True,
                     },
+                    "reactions": [],
+                    "webhook_id": None,
+                    "webhook_name": None,
+                    "webhook_avatar_url": None,
+                    "embeds": body.embeds or None,
+                    "components": body.components or None,
+                    "application_id": str(interaction.application_id),
                 },
             })
         elif interaction.dm_id:

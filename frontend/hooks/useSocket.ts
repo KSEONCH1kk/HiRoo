@@ -11,6 +11,7 @@ import { useUnreadStore } from "@/store/unreadStore";
 import { useVoicePresenceStore } from "@/store/voicePresenceStore";
 import { useVoiceAdminStore } from "@/store/voiceAdminStore";
 import { useCallStore } from "@/store/callStore";
+import { useEphemeralToastStore } from "@/store/ephemeralToastStore";
 import { playNotify } from "@/lib/sounds";
 import type { Message, DMMessageType, VoiceState, DirectMessage, Channel } from "@/types";
 
@@ -232,6 +233,17 @@ export function useSocket() {
       useCallStore.getState().setServerMuted(!!data.server_muted);
       useCallStore.getState().setServerDeafened(!!data.server_deafened);
     };
+    const onInteractionEphemeral = (data: { content?: string; embeds?: any[] }) => {
+      if (!data) return;
+      // Show as a transient toast — only the invoking user sees it.
+      useEphemeralToastStore.getState().push({
+        id: `${Date.now()}-${Math.random()}`,
+        content: data.content ?? "",
+      });
+    };
+    const onInteractionDeferred = (_data: any) => {
+      // Could wire up a subtle "bot is thinking" indicator; no-op for now.
+    };
 
     s.on("message_create", onMessageCreate);
     s.on("message_update", onMessageUpdate);
@@ -267,6 +279,8 @@ export function useSocket() {
     s.on("dm_update", onDMUpdate);
     s.on("dm_member_left", onDMMemberLeft);
     s.on("ready", onReady);
+    s.on("interaction_ephemeral", onInteractionEphemeral);
+    s.on("interaction_deferred", onInteractionDeferred);
 
     return () => {
       s.off("message_create", onMessageCreate);
@@ -282,6 +296,8 @@ export function useSocket() {
       s.off("reaction_remove", onReactionRemove);
       s.off("voice_state_update", onVoiceState);
       s.off("presence_update", onPresence);
+    s.off("interaction_ephemeral", onInteractionEphemeral);
+    s.off("interaction_deferred", onInteractionDeferred);
       s.off("voice_snapshot", onVoiceSnapshot);
       s.off("voice_user_state", onVoiceUserState);
       s.off("voice_room_joined", onVoiceRoomJoined);

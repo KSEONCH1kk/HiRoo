@@ -441,12 +441,17 @@ export interface AuthorizeInfo {
 }
 
 export const oauth2Api = {
-  authorizeInfo: (params: { client_id: string; scope: string; redirect_uri: string }) =>
-    api.get<AuthorizeInfo>(`/api/oauth2/authorize/info`, { params }).then((r) => r.data),
-  authorize: (body: { client_id: string; redirect_uri: string; scope: string; state?: string; guild_id?: string }) => {
+  authorizeInfo: (params: { client_id: string; scope: string; redirect_uri?: string }) => {
+    const clean: Record<string, string> = { client_id: params.client_id, scope: params.scope };
+    if (params.redirect_uri) clean.redirect_uri = params.redirect_uri;
+    return api.get<AuthorizeInfo>(`/api/oauth2/authorize/info`, { params: clean }).then((r) => r.data);
+  },
+  authorize: (body: { client_id: string; redirect_uri?: string; scope: string; state?: string; guild_id?: string }) => {
     const fd = new FormData();
     Object.entries(body).forEach(([k, v]) => v != null && fd.append(k, v));
-    return api.post<{ location: string }>(`/api/oauth2/authorize`, fd).then((r) => r.data);
+    return api.post<{ location: string | null; success?: boolean; message?: string; code?: string; guild_id?: string }>(
+      `/api/oauth2/authorize`, fd,
+    ).then((r) => r.data);
   },
 };
 

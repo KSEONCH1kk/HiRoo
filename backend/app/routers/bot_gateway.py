@@ -111,12 +111,6 @@ async def _send(ws: WebSocket, payload: dict) -> None:
         pass
 
 
-@router.get("/gateway")
-async def gateway_info():
-    """Public WSS endpoint hint. Client libraries call this first."""
-    return {"url": "wss://hiroo.intave.tech/api/bot/gateway"}
-
-
 @router.get("/gateway/bot")
 async def gateway_bot_info(
     request: Request,
@@ -217,7 +211,19 @@ async def bot_gateway(ws: WebSocket):
         async with async_session() as db:
             u = (await db.execute(select(User).where(User.id == bot.user_id))).scalar_one()
             u.status = "online"
-            await db.flush()
+            # Collect servers where the bot is a member — so we can broadcast
+            # its presence_update to the people who can see it.
+            member_servers = await db.execute(
+                select(ServerMember.server_id).where(ServerMember.user_id == bot.user_id)
+            )
+            guild_ids_for_presence = [row[0] for row in member_servers.all()]
+            await db.commit()
+        from app.services.websocket_service import manager as _ws_manager
+        for sid in guild_ids_for_presence:
+            await _ws_manager.broadcast_to_server(str(sid), {
+                "event": "presence_update",
+                "data": {"user_id": str(bot.user_id), "status": "online"},
+            }, exclude_user=str(bot.user_id))
 
         conn.seq += 1
         await _send(ws, {
@@ -261,14 +267,32 @@ async def bot_gateway(ws: WebSocket):
     finally:
         if conn is not None:
             _connections.pop((conn.application_id, conn.shard_id), None)
+            # If another shard of the same bot is still connected, don't flip
+            # the user status to offline.
+            still_online = any(
+                c.application_id == conn.application_id
+                for c in _connections.values()
+            )
             try:
                 async with async_session() as db:
                     u = (await db.execute(select(User).where(User.id == conn.bot_user_id))).scalar_one_or_none()
-                    if u:
+                    sids: list = []
+                    if u and not still_online:
                         u.status = "offline"
-                        await db.flush()
+                        rows = await db.execute(
+                            select(ServerMember.server_id).where(ServerMember.user_id == conn.bot_user_id)
+                        )
+                        sids = [r[0] for r in rows.all()]
+                    await db.commit()
+                if not still_online and sids:
+                    from app.services.websocket_service import manager as _ws_manager
+                    for sid in sids:
+                        await _ws_manager.broadcast_to_server(str(sid), {
+                            "event": "presence_update",
+                            "data": {"user_id": str(conn.bot_user_id), "status": "offline"},
+                        }, exclude_user=str(conn.bot_user_id))
             except Exception:
-                pass
+                log.exception("bot_gateway cleanup failed")
 
 
 # ── Public helpers called from other routers to fan events out to bots ──

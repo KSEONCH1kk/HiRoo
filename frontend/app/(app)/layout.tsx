@@ -17,6 +17,7 @@ import { UserTray } from "@/components/layout/UserTray";
 import { IncomingCall } from "@/components/modals/IncomingCall";
 import { ImageViewer } from "@/components/chat/ImageViewer";
 import { CommandPalette } from "@/components/modals/CommandPalette";
+import { EphemeralToasts } from "@/components/chat/EphemeralToasts";
 import { ProfilePopout } from "@/components/modals/ProfilePopout";
 import { VoiceCall } from "@/components/voice/VoiceCall";
 import { useCallStore } from "@/store/callStore";
@@ -257,6 +258,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <ImageViewer />
       <CommandPalette show={cmdOpen} onClose={() => setCmdOpen(false)} />
       <ProfilePopout />
+      <EphemeralToasts />
 
     </div>
   );

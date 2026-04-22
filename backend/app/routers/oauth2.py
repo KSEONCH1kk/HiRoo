@@ -49,7 +49,7 @@ def _join_scope(s: set[str]) -> str:
 async def authorize_info(
     client_id: str = Query(..., max_length=32),
     scope: str = Query("identify"),
-    redirect_uri: str = Query(...),
+    redirect_uri: str = Query(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -57,11 +57,13 @@ async def authorize_info(
     app = res.scalar_one_or_none()
     if not app:
         raise HTTPException(400, "Unknown client_id")
-    if redirect_uri not in (app.redirect_uris or []):
-        # Bot-invite flows may omit redirect_uri from the stored list; we still
-        # require an exact match for non-bot flows to prevent open redirects.
+    # redirect_uri is required for auth-code flows but optional for pure bot
+    # installs (they don't need a code delivered back to a URL).
+    if redirect_uri and redirect_uri not in (app.redirect_uris or []):
         if "bot" not in _split_scope(scope):
             raise HTTPException(400, "redirect_uri не в whitelist приложения")
+    elif not redirect_uri and "bot" not in _split_scope(scope):
+        raise HTTPException(400, "redirect_uri обязателен")
 
     requested = _split_scope(scope)
     bad = requested - VALID_SCOPES
@@ -91,7 +93,7 @@ async def authorize_info(
 @router.post("/authorize")
 async def authorize_approve(
     client_id: str = Form(...),
-    redirect_uri: str = Form(...),
+    redirect_uri: str = Form(""),
     scope: str = Form("identify"),
     state: str | None = Form(None),
     guild_id: str | None = Form(None),   # for bot installs
@@ -106,7 +108,9 @@ async def authorize_approve(
     requested = _split_scope(scope)
     if requested - VALID_SCOPES:
         raise HTTPException(400, "Unsupported scopes")
-    if redirect_uri not in (app.redirect_uris or []) and "bot" not in requested:
+    # redirect_uri is optional for pure bot installs — no code needs to go anywhere.
+    has_redirect = bool(redirect_uri)
+    if has_redirect and redirect_uri not in (app.redirect_uris or []) and "bot" not in requested:
         raise HTTPException(400, "redirect_uri не в whitelist приложения")
 
     # Bot invite: add the bot User as a ServerMember of guild_id.
@@ -134,7 +138,17 @@ async def authorize_approve(
             db.add(ServerMember(server_id=g.id, user_id=bot.user_id, role="member"))
         await db.flush()
 
-    # Mint a code.
+    # Bot-only installs without a redirect_uri don't need a code at all —
+    # the bot was added straight to the guild above.
+    if not has_redirect and "bot" in requested and requested.issubset({"bot", "applications.commands"}):
+        return {
+            "location": None,
+            "success": True,
+            "guild_id": guild_id,
+            "message": "Бот добавлен на сервер.",
+        }
+
+    # Mint a code for the token exchange.
     code = generate_oauth2_code()
     auth = OAuth2AuthorizationCode(
         code=code,
@@ -146,6 +160,9 @@ async def authorize_approve(
     )
     db.add(auth)
     await db.flush()
+    if not has_redirect:
+        # No place to send the code — return it inline (e.g. for device-code style flows).
+        return {"location": None, "code": code, "state": state}
     location = f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}code={code}"
     if state:
         location += f"&state={state}"

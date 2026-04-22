@@ -52,15 +52,24 @@ function AuthorizePage() {
   }, [wantsBot, myServers, guildId]);
 
   const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState<{ message: string; guildId?: string | null } | null>(null);
 
   const onAuthorize = async () => {
     setSubmitting(true);
     try {
-      const body: any = { client_id, redirect_uri, scope };
+      const body: any = { client_id, scope };
+      if (redirect_uri) body.redirect_uri = redirect_uri;
       if (state) body.state = state;
       if (wantsBot && guildId) body.guild_id = guildId;
       const res = await oauth2Api.authorize(body);
-      if (res.location) window.location.href = res.location;
+      if (res.location) {
+        window.location.href = res.location;
+        return;
+      }
+      setSuccess({
+        message: res.message ?? "Готово",
+        guildId: res.guild_id ?? guildId,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -74,6 +83,43 @@ function AuthorizePage() {
 
   if (response_type && response_type !== "code") {
     return <Center><ErrorCard>Unsupported response_type: {response_type}</ErrorCard></Center>;
+  }
+
+  if (success) {
+    return (
+      <Center>
+        <div style={{
+          width: 420, maxWidth: "92vw",
+          background: "var(--bg-2)", borderRadius: 14,
+          border: "1px solid var(--line-strong)",
+          padding: 28, textAlign: "center",
+          boxShadow: "0 30px 80px rgba(0,0,0,0.5)",
+        }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: "50%",
+            background: "rgba(88, 207, 140, 0.18)",
+            margin: "0 auto 16px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <i className="fa-solid fa-check" style={{ color: "#6fd99a", fontSize: 24 }} />
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-0)", marginBottom: 6 }}>
+            {success.message}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 20 }}>
+            Можно закрыть это окно.
+          </div>
+          <Button
+            onClick={() => {
+              if (success.guildId) window.location.href = `/servers/${success.guildId}`;
+              else window.close();
+            }}
+          >
+            {success.guildId ? "Перейти к серверу" : "Закрыть"}
+          </Button>
+        </div>
+      </Center>
+    );
   }
 
   if (isLoading) return <Center><div style={{ color: "var(--text-2)" }}>Загружаем…</div></Center>;

@@ -218,19 +218,21 @@ export default function ApplicationPage() {
 
           {app.has_bot && (
             <Field label="Invite бота на сервер">
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0, width: "100%" }}>
                 <a
                   href={`/oauth2/authorize?client_id=${app.client_id}&scope=${encodeURIComponent("bot applications.commands")}`}
                   target="_blank"
                   rel="noreferrer"
-                  style={{ textDecoration: "none" }}
+                  style={{ textDecoration: "none", flexShrink: 0 }}
                 >
                   <Button>
                     <i className="fa-solid fa-plus" style={{ marginRight: 6 }} />
                     Пригласить
                   </Button>
                 </a>
-                <CodeBlock value={`${typeof window !== "undefined" ? window.location.origin : ""}/oauth2/authorize?client_id=${app.client_id}&scope=${encodeURIComponent("bot applications.commands")}`} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <CodeBlock value={`${typeof window !== "undefined" ? window.location.origin : ""}/oauth2/authorize?client_id=${app.client_id}&scope=${encodeURIComponent("bot applications.commands")}`} />
+                </div>
               </div>
             </Field>
           )}
@@ -363,9 +365,9 @@ function Toggle({ checked, onChange, hint }: { checked: boolean; onChange: (v: b
 
 function CodeBlock({ value }: { value: string }) {
   return (
-    <div style={{ display: "flex", gap: 8 }}>
+    <div style={{ display: "flex", gap: 8, minWidth: 0, width: "100%" }}>
       <code style={{
-        flex: 1, padding: "8px 10px", borderRadius: 6,
+        flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 6,
         background: "var(--bg-0)", border: "1px solid var(--line)",
         fontSize: 11.5, fontFamily: "Geist Mono", color: "var(--text-1)",
         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",

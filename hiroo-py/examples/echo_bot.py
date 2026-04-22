@@ -13,7 +13,7 @@ from hiroo import Button, ButtonStyle, ActionRow, Embed
 bot = hiroo.Bot(
     intents=hiroo.Intents.default() | hiroo.Intents.MESSAGE_CONTENT,
     base_url=os.environ.get("HIROO_BASE_URL", "https://hiroo.intave.tech"),
-    application_id=os.environ["HIROO_APP_ID"],
+    application_id="85102224-beff-445f-b34d-78640c59ec1d",
     shard_count=int(os.environ.get("HIROO_SHARDS", "1")),
 )
 
@@ -54,4 +54,4 @@ async def on_dislike(ctx: hiroo.CommandContext):
 
 
 if __name__ == "__main__":
-    bot.run(os.environ["HIROO_TOKEN"])
+    bot.run("RjTwkOjOQHOfBRsE7-2EZQ.AGnomEg.afc9bc3005387d8ac40d54a7fb3")

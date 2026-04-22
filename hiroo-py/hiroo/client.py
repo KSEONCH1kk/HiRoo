@@ -267,7 +267,25 @@ class Bot:
 
         for h in self._event_handlers.get(event, []):
             try:
-                res = h(payload)
+                # Accept both `async def on_ready()` and `async def on_message(msg)` —
+                # inspect the signature and only pass payload when there's a slot for it.
+                try:
+                    sig = inspect.signature(h)
+                    positional = [
+                        p for p in sig.parameters.values()
+                        if p.kind in (
+                            inspect.Parameter.POSITIONAL_ONLY,
+                            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                            inspect.Parameter.VAR_POSITIONAL,
+                        )
+                    ]
+                    takes_arg = (
+                        any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in positional)
+                        or len(positional) >= 1
+                    )
+                except (TypeError, ValueError):
+                    takes_arg = True
+                res = h(payload) if takes_arg else h()
                 if asyncio.iscoroutine(res):
                     await res
             except Exception:

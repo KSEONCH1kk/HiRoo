@@ -32,16 +32,30 @@ export function CommandPicker({ guildId, dmId, query, onSelect, onClose }: Props
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!items.length) return;
-      if (e.key === "ArrowDown") { e.preventDefault(); setHighlight((h) => (h + 1) % items.length); }
-      else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => (h - 1 + items.length) % items.length); }
-      else if (e.key === "Tab" || e.key === "Enter") {
+      if (e.key === "ArrowDown") {
+        e.preventDefault(); e.stopPropagation();
+        setHighlight((h) => (h + 1) % items.length);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault(); e.stopPropagation();
+        setHighlight((h) => (h - 1 + items.length) % items.length);
+      } else if (e.key === "Tab" || e.key === "Enter") {
         const it = items[highlight];
-        if (it) { e.preventDefault(); onSelect(it); }
+        if (it) {
+          e.preventDefault();
+          e.stopPropagation();
+          // Also block Shift+Enter-style defaults bubbling into textarea.
+          (e as any).stopImmediatePropagation?.();
+          onSelect(it);
+        }
+      } else if (e.key === "Escape") {
+        e.preventDefault(); e.stopPropagation();
+        onClose();
       }
-      else if (e.key === "Escape") { e.preventDefault(); onClose(); }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Capture phase — we need to intercept BEFORE the composer textarea's
+    // onKeyDown handler fires (which would otherwise submit the message on Enter).
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [items, highlight, onSelect, onClose]);
 
   if (!items.length) return null;
