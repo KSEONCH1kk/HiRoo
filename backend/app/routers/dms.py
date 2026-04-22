@@ -123,6 +123,15 @@ async def create_dm(
     all_ids = list({current_user.id, *body.user_ids})
     is_group = len(all_ids) > 2
 
+    # Can't open a DM with someone who's on your block list, or with someone
+    # who's blocked you.
+    from app.services.blocks import either_blocks
+    for uid in all_ids:
+        if uid == current_user.id:
+            continue
+        if await either_blocks(current_user.id, uid, db):
+            raise HTTPException(status_code=403, detail="Пользователь заблокирован или заблокировал вас")
+
     if not is_group:
         other_id = next(i for i in all_ids if i != current_user.id)
         existing = await db.execute(
@@ -259,6 +268,25 @@ async def send_dm_message(
     current_user: User = Depends(get_current_active_user),
 ):
     await _require_dm_participant(dm_id, current_user.id, db)
+
+    # Block enforcement for 1:1 DMs only — in group DMs we let everyone
+    # keep typing; the client hides blocked users' messages visually.
+    dm_info_res = await db.execute(select(DirectMessage).where(DirectMessage.id == dm_id))
+    _dm_info = dm_info_res.scalar_one_or_none()
+    if _dm_info and not _dm_info.is_group:
+        from app.services.blocks import either_blocks
+        others_res = await db.execute(
+            select(DMParticipant.user_id).where(
+                DMParticipant.dm_id == dm_id,
+                DMParticipant.user_id != current_user.id,
+            )
+        )
+        for (other_id,) in others_res.all():
+            if await either_blocks(current_user.id, other_id, db):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Нельзя отправить сообщение: блокировка активна",
+                )
 
     reply_to_id = body.reply_to_id
     if reply_to_id:

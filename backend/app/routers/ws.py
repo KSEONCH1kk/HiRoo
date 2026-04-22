@@ -623,6 +623,25 @@ async def websocket_endpoint(
                             "video": payload.get("video", False),
                         },
                     })
+                    # High-priority push so the phone rings even if the app is
+                    # killed / dozing — Android delivers FCM HIGH priority
+                    # within seconds. Data payload lets the client optionally
+                    # open the incoming-call UI on tap.
+                    if not manager.is_online(str(target_id)):
+                        try:
+                            from app.services.fcm import send_to_user as _fcm
+                            name = user.display_name or user.username
+                            is_video = bool(payload.get("video", False))
+                            await _fcm(str(target_id),
+                                       title=f"{name} звонит вам",
+                                       body=("Видеозвонок" if is_video else "Голосовой звонок"),
+                                       data={"kind": "voice_ring",
+                                             "room_id": str(room_id),
+                                             "from_user_id": str(user.id),
+                                             "video": "1" if is_video else "0"})
+                        except Exception:
+                            import logging as _l
+                            _l.getLogger("hiroo.fcm").exception("voice_ring push failed")
 
             elif event == "voice_ring_cancel":
                 target_id = payload.get("target_user_id")

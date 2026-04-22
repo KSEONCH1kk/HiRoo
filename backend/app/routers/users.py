@@ -132,3 +132,73 @@ async def get_user(
         raise HTTPException(status_code=404, detail="User not found")
     badges = await compute_badges(user, db)
     return _with_badges(user, badges)
+
+
+# ── Block list ───────────────────────────────────────────────────────────
+
+@router.get("/me/blocks", response_model=list[UserPublic])
+async def list_my_blocks(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    from app.models.block import UserBlock
+    rows = await db.execute(
+        select(User).join(UserBlock, UserBlock.blocked_id == User.id)
+        .where(UserBlock.blocker_id == current_user.id)
+    )
+    users = list(rows.scalars())
+    return [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in users]
+
+
+@router.post("/{user_id}/block", status_code=204)
+async def block_user(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    from app.models.block import UserBlock
+    from app.models.friend import FriendRequest
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Нельзя заблокировать себя")
+    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    dup = await db.execute(select(UserBlock).where(
+        UserBlock.blocker_id == current_user.id,
+        UserBlock.blocked_id == user_id,
+    ))
+    if dup.scalar_one_or_none():
+        return
+
+    db.add(UserBlock(blocker_id=current_user.id, blocked_id=user_id))
+
+    # Auto-cleanup: drop any pending friend request between them.
+    fr = await db.execute(
+        select(FriendRequest).where(
+            ((FriendRequest.from_user_id == current_user.id) & (FriendRequest.to_user_id == user_id)) |
+            ((FriendRequest.from_user_id == user_id) & (FriendRequest.to_user_id == current_user.id)),
+            FriendRequest.status == "pending",
+        )
+    )
+    for req in fr.scalars():
+        req.status = "blocked"
+
+    await db.flush()
+
+
+@router.delete("/{user_id}/block", status_code=204)
+async def unblock_user(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    from app.models.block import UserBlock
+    r = await db.execute(select(UserBlock).where(
+        UserBlock.blocker_id == current_user.id,
+        UserBlock.blocked_id == user_id,
+    ))
+    row = r.scalar_one_or_none()
+    if row:
+        await db.delete(row)
+        await db.flush()

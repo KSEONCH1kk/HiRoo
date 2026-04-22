@@ -10,6 +10,7 @@ import { useChatStore } from "@/store/chatStore";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { Message as MessageType } from "@/types";
 import { MessageComponents } from "./MessageComponents";
+import { useBlocksStore } from "@/store/blocksStore";
 
 interface Props {
   grouped?: boolean;
@@ -26,10 +27,15 @@ interface Props {
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
 export function Message({ message: m, prevAuthorId, currentUserId, authorColor, canManageMessages, onEdit, onDelete, onReact }: Props) {
+  // Hooks — must always be called in the same order, so do NOT early-return
+  // between them. The `blocked` placeholder is rendered via a conditional in
+  // the JSX at the bottom.
   const [hover, setHover] = useState(false);
   const [editValue, setEditValue] = useState(m.content);
   const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [revealBlocked, setRevealBlocked] = useState(false);
+  const blocked = useBlocksStore((s) => m.author?.id ? s.blockedIds.has(m.author.id) : false);
   const { editingMessageId, startEdit, cancelEdit, startReply } = useChatStore();
   const editing = editingMessageId === m.id;
   const isMobile = useIsMobile();
@@ -81,6 +87,25 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
   const isGroup = m.author_id !== prevAuthorId || isWebhook;
   const isMe = !isWebhook && m.author_id === currentUserId;
   const hue = 268;
+
+  if (blocked && !revealBlocked) {
+    return (
+      <div style={{
+        padding: "6px 16px", margin: "2px 0", color: "var(--text-3)",
+        fontSize: 12, fontStyle: "italic",
+        display: "flex", alignItems: "center", gap: 10,
+      }}>
+        <i className="fa-solid fa-ban" style={{ fontSize: 10 }} />
+        <span>Сообщение от заблокированного пользователя</span>
+        <button
+          onClick={() => setRevealBlocked(true)}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent)", fontSize: 11, fontWeight: 600 }}
+        >
+          Показать
+        </button>
+      </div>
+    );
+  }
 
   if (m.is_deleted) {
     return (

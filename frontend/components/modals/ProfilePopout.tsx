@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUIStore } from "@/store/uiStore";
@@ -8,11 +9,37 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { getStatusColor } from "@/lib/utils";
 import { Badges } from "@/components/profile/Badges";
+import { useBlocksStore } from "@/store/blocksStore";
 
 const MONTHS_RU = [
   "янв.", "фев.", "мар.", "апр.", "мая", "июн.",
   "июл.", "авг.", "сен.", "окт.", "ноя.", "дек.",
 ];
+
+function BlockButton({ userId }: { userId: string }) {
+  const { isBlocked, block, unblock } = useBlocksStore();
+  const blocked = isBlocked(userId);
+  const [busy, setBusy] = useState(false);
+  const onClick = async () => {
+    if (busy) return;
+    if (!blocked && !confirm("Заблокировать этого пользователя? Он больше не сможет писать вам.")) return;
+    setBusy(true);
+    try { blocked ? await unblock(userId) : await block(userId); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Button
+      size="sm"
+      variant={blocked ? "soft" : "danger"}
+      icon={<i className={`fa-solid ${blocked ? "fa-user-check" : "fa-ban"}`} style={{ fontSize: 12 }} />}
+      disabled={busy}
+      onClick={onClick}
+    >
+      {busy ? "…" : (blocked ? "Разблокировать" : "Заблокировать")}
+    </Button>
+  );
+}
+
 
 function formatJoinDate(iso: string): string {
   const d = new Date(iso);
@@ -67,15 +94,18 @@ export function ProfilePopout() {
           <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginTop: -28, marginBottom: 12 }}>
             <Avatar name={p.username} size={56} shape="circle" avatarUrl={p.avatar_url} status={p.status} ring />
             {!isSelf && (
-              <Button
-                size="sm"
-                variant="soft"
-                icon={<i className="fa-solid fa-paper-plane" style={{ fontSize: 12 }} />}
-                disabled={openDm.isPending}
-                onClick={() => openDm.mutate(p.id)}
-              >
-                {openDm.isPending ? "…" : "Написать"}
-              </Button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <Button
+                  size="sm"
+                  variant="soft"
+                  icon={<i className="fa-solid fa-paper-plane" style={{ fontSize: 12 }} />}
+                  disabled={openDm.isPending}
+                  onClick={() => openDm.mutate(p.id)}
+                >
+                  {openDm.isPending ? "…" : "Написать"}
+                </Button>
+                <BlockButton userId={p.id} />
+              </div>
             )}
           </div>
           <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-0)", letterSpacing: -0.3, display: "inline-flex", alignItems: "center", gap: 6 }}>

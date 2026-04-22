@@ -15,6 +15,7 @@ from app.models.application import (
 )
 from app.models.interaction import Interaction
 from app.models.device import DeviceToken
+from app.models.block import UserBlock
 
 __all__ = [
     "User", "Server", "ServerMember", "Channel",
@@ -27,4 +28,5 @@ __all__ = [
     "OAuth2AuthorizationCode", "OAuth2Token",
     "Interaction",
     "DeviceToken",
+    "UserBlock",
 ]

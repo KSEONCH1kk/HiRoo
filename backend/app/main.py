@@ -90,6 +90,15 @@ MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_device_tokens_user_id ON device_tokens (user_id)",
+    """
+    CREATE TABLE IF NOT EXISTS user_blocks (
+        blocker_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        blocked_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        PRIMARY KEY (blocker_id, blocked_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_user_blocks_blocked ON user_blocks (blocked_id)",
 ]
 
 

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { friendsApi, dmsApi } from "@/lib/api";
@@ -25,7 +25,20 @@ export function FriendsList() {
 
   const { data: friends = [] } = useQuery({ queryKey: ["friends"], queryFn: friendsApi.list });
   const { data: pending = [] } = useQuery({ queryKey: ["friends-pending"], queryFn: friendsApi.pending });
-  const { data: blocked = [] } = useQuery({ queryKey: ["friends-blocked"], queryFn: friendsApi.blocked, enabled: tab === "blocked" });
+  const { data: blocked = [] } = useQuery({
+    queryKey: ["friends-blocked"],
+    queryFn: friendsApi.blocked,
+    // Preload so toggling the tab shows the list immediately.
+    staleTime: 10_000,
+  });
+
+  // Re-fetch whenever another part of the UI (profile popout, DM member
+  // pill, context menu) toggles someone in the block list.
+  useEffect(() => {
+    const on = () => qc.invalidateQueries({ queryKey: ["friends-blocked"] });
+    window.addEventListener("hiroo:blocks-updated", on);
+    return () => window.removeEventListener("hiroo:blocks-updated", on);
+  }, [qc]);
 
   const accept = useMutation({ mutationFn: (id: string) => friendsApi.accept(id), onSuccess: () => { qc.invalidateQueries({ queryKey: ["friends"] }); qc.invalidateQueries({ queryKey: ["friends-pending"] }); } });
   const reject = useMutation({ mutationFn: (id: string) => friendsApi.reject(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["friends-pending"] }) });

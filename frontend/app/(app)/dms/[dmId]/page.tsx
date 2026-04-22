@@ -7,6 +7,8 @@ import { DMComposer } from "@/components/dm/DMComposer";
 import { GroupDMSettings } from "@/components/dm/GroupDMSettings";
 import { MessageSearchModal } from "@/components/chat/MessageSearchModal";
 import { Avatar } from "@/components/ui/Avatar";
+import { DMMemberPill } from "@/components/dm/DMMemberPill";
+import { DMMembersPanel } from "@/components/dm/DMMembersPanel";
 import { useAuthStore } from "@/store/authStore";
 import { useUnreadStore } from "@/store/unreadStore";
 import { useCallStore } from "@/store/callStore";
@@ -29,6 +31,7 @@ export default function DMPage({ params }: { params: { dmId: string } }) {
   const roomMembers = useVoicePresenceStore((s) => s.byRoom[roomId]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
 
   const { data: dm } = useQuery<DirectMessage>({
     queryKey: ["dm", dmId],
@@ -70,7 +73,8 @@ export default function DMPage({ params }: { params: { dmId: string } }) {
   const groupIconUrl = dm?.icon_url ? resolveIcon(dm.icon_url) : undefined;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
+    <div style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
       <div style={{ height: 48, flexShrink: 0, padding: "0 16px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 10, background: "var(--bg-1)" }}>
         {isGroup ? (
           groupIconUrl ? (
@@ -84,8 +88,12 @@ export default function DMPage({ params }: { params: { dmId: string } }) {
               <i className="fa-solid fa-users" style={{ fontSize: 12 }} />
             </div>
           )
+        ) : others[0] ? (
+          <div style={{ display: "inline-flex" }}>
+            <DMMemberPill user={others[0] as any} variant="pill" />
+          </div>
         ) : (
-          <Avatar name={others[0]?.username ?? "?"} size={28} status={others[0]?.status} shape="circle" avatarUrl={others[0]?.avatar_url} />
+          <Avatar name="?" size={28} shape="circle" />
         )}
         <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
           <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
@@ -149,13 +157,28 @@ export default function DMPage({ params }: { params: { dmId: string } }) {
             <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 13 }} />
           </button>
           {isGroup && (
-            <button
-              onClick={() => setSettingsOpen(true)}
-              title={isOwner ? "Настройки группы" : "Участники"}
-              style={{ width: 32, height: 32, border: "none", background: "transparent", borderRadius: 6, cursor: "pointer", color: "var(--text-2)", display: "flex", alignItems: "center", justifyContent: "center" }}
-            >
-              <i className="fa-solid fa-gear" style={{ fontSize: 14 }} />
-            </button>
+            <>
+              <button
+                onClick={() => setMembersOpen((v) => !v)}
+                title={membersOpen ? "Скрыть участников" : "Участники"}
+                style={{
+                  height: 30, padding: "0 10px", borderRadius: 6, border: "none", cursor: "pointer",
+                  background: membersOpen ? "var(--bg-active)" : "transparent",
+                  color: "var(--text-2)", display: "flex", alignItems: "center", gap: 6,
+                  fontSize: 12.5, fontWeight: 500,
+                }}
+              >
+                <i className="fa-solid fa-users" style={{ fontSize: 12 }} />
+                {dm?.participants.length}
+              </button>
+              <button
+                onClick={() => setSettingsOpen(true)}
+                title={isOwner ? "Настройки группы" : "Участники"}
+                style={{ width: 32, height: 32, border: "none", background: "transparent", borderRadius: 6, cursor: "pointer", color: "var(--text-2)", display: "flex", alignItems: "center", justifyContent: "center" }}
+              >
+                <i className="fa-solid fa-gear" style={{ fontSize: 14 }} />
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -164,13 +187,7 @@ export default function DMPage({ params }: { params: { dmId: string } }) {
         <div style={{ padding: "6px 16px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 6, background: "var(--bg-1)", overflowX: "auto", flexShrink: 0 }}>
           <span style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono", marginRight: 4 }}>Участники:</span>
           {dm.participants.map((p) => (
-            <div key={p.user.id} title={p.user.display_name ?? p.user.username} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px 3px 4px", borderRadius: 999, background: "var(--bg-2)", border: "1px solid var(--line)" }}>
-              <Avatar name={p.user.username} size={18} shape="circle" status={p.user.status} avatarUrl={p.user.avatar_url} />
-              <span style={{ fontSize: 11.5, color: "var(--text-1)" }}>
-                {p.user.display_name ?? p.user.username}
-                {p.user.id === user?.id && <span style={{ color: "var(--text-3)" }}> · вы</span>}
-              </span>
-            </div>
+            <DMMemberPill key={p.user.id} user={p.user} dmId={dmId} isOwner={isOwner} />
           ))}
         </div>
       )}
@@ -178,6 +195,10 @@ export default function DMPage({ params }: { params: { dmId: string } }) {
       <DMMessageList dmId={dmId} />
       <DMComposer dmId={dmId} recipientName={title} />
       {settingsOpen && dm && <GroupDMSettings dm={dm} onClose={() => setSettingsOpen(false)} />}
+      </div>
+      {membersOpen && dm?.is_group && (
+        <DMMembersPanel dm={dm} meId={user?.id} onClose={() => setMembersOpen(false)} />
+      )}
       {searchOpen && dm && (
         <MessageSearchModal
           ctx={{ type: "dm", dmId, participants: dm.participants }}

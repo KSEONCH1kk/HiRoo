@@ -373,6 +373,14 @@ async def add_reaction(
     perms = await compute_permissions(channel.server_id, current_user.id, db, channel_id=channel.id)
     if not (perms & Permissions.ADD_REACTIONS):
         raise HTTPException(status_code=403, detail="Нет права добавлять реакции")
+
+    msg_res = await db.execute(
+        select(Message).where(Message.id == message_id, Message.channel_id == channel_id)
+    )
+    msg = msg_res.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+
     result = await db.execute(
         select(MessageReaction).where(
             MessageReaction.message_id == message_id,
@@ -395,6 +403,21 @@ async def add_reaction(
             "emoji": body.emoji,
         },
     }, exclude_user=str(current_user.id))
+
+    # Push to the message author if they're offline and someone else reacted.
+    if msg.author_id and msg.author_id != current_user.id and not manager.is_online(str(msg.author_id)):
+        try:
+            from app.services.fcm import send_to_user as _fcm
+            name = current_user.display_name or current_user.username
+            await _fcm(str(msg.author_id),
+                       title=f"{name} отреагировал {body.emoji}",
+                       body=(msg.content or "")[:240],
+                       data={"channel_id": str(channel_id),
+                             "server_id": str(channel.server_id),
+                             "message_id": str(message_id)})
+        except Exception:
+            import logging
+            logging.getLogger("hiroo.fcm").exception("reaction push failed")
 
 
 @router.delete("/{message_id}/reactions", status_code=204)

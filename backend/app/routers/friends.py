@@ -81,6 +81,9 @@ async def send_friend_request(
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     if target.id == current_user.id:
         raise HTTPException(status_code=400, detail="Нельзя отправить заявку самому себе")
+    from app.services.blocks import either_blocks
+    if await either_blocks(current_user.id, target.id, db):
+        raise HTTPException(status_code=403, detail="Пользователь недоступен")
 
     existing = await db.execute(
         select(FriendRequest).where(
@@ -135,6 +138,17 @@ async def send_friend_request(
         "event": "friend_request",
         "data": {"from_user_id": str(current_user.id), "username": current_user.username},
     })
+    if not manager.is_online(str(target.id)):
+        try:
+            from app.services.fcm import send_to_user as _fcm
+            name = current_user.display_name or current_user.username
+            await _fcm(str(target.id),
+                       title="Новая заявка в друзья",
+                       body=f"{name} хочет добавить вас в друзья",
+                       data={"from_user_id": str(current_user.id)})
+        except Exception:
+            import logging
+            logging.getLogger("hiroo.fcm").exception("friend push failed")
     return req
 
 

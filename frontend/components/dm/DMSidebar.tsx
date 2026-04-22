@@ -9,6 +9,9 @@ import { useUnreadStore } from "@/store/unreadStore";
 import { CreateDMModal } from "./CreateDMModal";
 import { SearchBarButton } from "@/components/layout/SearchBarButton";
 import { dmTitle, dmAvatarProps } from "@/lib/dm";
+import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
+import { useBlocksStore } from "@/store/blocksStore";
+import { useUIStore } from "@/store/uiStore";
 import type { DirectMessage } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -25,6 +28,9 @@ export function DMSidebar() {
   const { user } = useAuthStore();
   const { unreadByDm } = useUnreadStore();
   const [modalOpen, setModalOpen] = useState(false);
+  const [ctx, setCtx] = useState<{ x: number; y: number; dm: DirectMessage } | null>(null);
+  const { block, unblock, isBlocked } = useBlocksStore();
+  const { setProfileUser } = useUIStore();
 
   const { data: dms = [] } = useQuery<DirectMessage[]>({
     queryKey: ["dms"],
@@ -69,6 +75,10 @@ export function DMSidebar() {
             <div
               key={dm.id}
               onClick={() => router.push(`/dms/${dm.id}`)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setCtx({ x: e.clientX, y: e.clientY, dm });
+              }}
               style={{
                 display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, cursor: "pointer",
                 background: isActive ? "var(--bg-active)" : "transparent",
@@ -114,6 +124,32 @@ export function DMSidebar() {
       <SearchBarButton />
 
       {modalOpen && <CreateDMModal onClose={() => setModalOpen(false)} />}
+
+      {ctx && (() => {
+        const other = ctx.dm.participants.find((p) => p.user.id !== user?.id)?.user;
+        const items: MenuItem[] = [];
+        if (!ctx.dm.is_group && other) {
+          const blocked = isBlocked(other.id);
+          items.push({ icon: "fa-user", label: "Профиль", onClick: () => setProfileUser(other) });
+          items.push({
+            icon: blocked ? "fa-user-check" : "fa-ban",
+            label: blocked ? "Разблокировать" : "Заблокировать",
+            danger: !blocked,
+            onClick: () => (blocked ? unblock(other.id) : block(other.id)),
+          });
+        }
+        items.push({ icon: "fa-copy", label: "Скопировать ID", onClick: () => navigator.clipboard?.writeText(ctx.dm.id) });
+        items.push({
+          icon: "fa-door-open", label: ctx.dm.is_group ? "Выйти из группы" : "Скрыть диалог", danger: true,
+          onClick: async () => {
+            if (!user?.id) return;
+            if (!confirm(ctx.dm.is_group ? "Выйти из группового чата?" : "Скрыть этот диалог?")) return;
+            try { await dmsApi.leave(ctx.dm.id, user.id); } catch {}
+            if (activeDmId === ctx.dm.id) router.push("/dms");
+          },
+        });
+        return <ContextMenu x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} items={items} />;
+      })()}
     </div>
   );
 }

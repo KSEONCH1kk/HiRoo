@@ -8,6 +8,7 @@ import { useServerStore } from "@/store/serverStore";
 import { useSocket } from "@/hooks/useSocket";
 import { useE2EEInit } from "@/hooks/useE2EEInit";
 import { useMobileIntegration } from "@/hooks/useMobileIntegration";
+import { useBlocksStore } from "@/store/blocksStore";
 import { serversApi, channelsApi } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { ServerRail } from "@/components/layout/ServerRail";
@@ -46,6 +47,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   useSocket();
   useE2EEInit();
   useMobileIntegration();
+  useEffect(() => { useBlocksStore.getState().refresh(); }, []);
 
   // Auto-close drawers on navigation (mobile UX)
   useEffect(() => { if (isMobile) closeAll(); }, [pathname, isMobile]);

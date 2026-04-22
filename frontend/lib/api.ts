@@ -77,6 +77,9 @@ export const authApi = {
 // ── Users ────────────────────────────────────────────────────
 export const usersApi = {
   get: (id: string) => api.get<UserPublic>(`/api/users/${id}`).then((r) => r.data),
+  block: (id: string) => api.post(`/api/users/${id}/block`),
+  unblock: (id: string) => api.delete(`/api/users/${id}/block`),
+  listBlocks: () => api.get<UserPublic[]>(`/api/users/me/blocks`).then((r) => r.data),
   updateMe: (data: { display_name?: string; custom_status?: string }) =>
     api.patch<User>("/api/users/me", data).then((r) => r.data),
   updateStatus: (status: string) =>
@@ -262,14 +265,15 @@ export const dmsApi = {
 export const friendsApi = {
   list: () => api.get<UserPublic[]>("/api/friends").then((r) => r.data),
   pending: () => api.get<FriendRequest[]>("/api/friends/pending").then((r) => r.data),
-  blocked: () => api.get<UserPublic[]>("/api/friends/blocked").then((r) => r.data),
+  // Unified source of truth — same endpoint as the global block list
+  // exposed from the profile popout.
+  blocked: () => api.get<UserPublic[]>("/api/users/me/blocks").then((r) => r.data),
+  unblock: (userId: string) => api.delete(`/api/users/${userId}/block`),
   sendRequest: (username: string) =>
     api.post<FriendRequest>("/api/friends/request", { username }).then((r) => r.data),
   accept: (id: string) => api.post<FriendRequest>(`/api/friends/request/${id}/accept`).then((r) => r.data),
   reject: (id: string) => api.post(`/api/friends/request/${id}/reject`),
   remove: (userId: string) => api.delete(`/api/friends/${userId}`),
-  block: (userId: string) => api.post(`/api/friends/block/${userId}`),
-  unblock: (userId: string) => api.delete(`/api/friends/block/${userId}`),
 };
 
 // ── Inbox ─────────────────────────────────────────────────────
