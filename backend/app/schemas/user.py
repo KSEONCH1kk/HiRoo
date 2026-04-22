@@ -48,9 +48,11 @@ class UserResponse(BaseModel):
     status: str
     custom_status: str | None
     is_verified: bool
+    is_platform_admin: bool = False
     created_at: datetime
     public_key: str | None = None
     signing_public_key: str | None = None
+    badges: list[str] = []
 
 
 class UserPublic(BaseModel):
@@ -62,8 +64,12 @@ class UserPublic(BaseModel):
     avatar_url: str | None
     status: str
     custom_status: str | None
+    is_verified: bool = False
+    is_platform_admin: bool = False
+    created_at: datetime | None = None
     public_key: str | None = None
     signing_public_key: str | None = None
+    badges: list[str] = []
 
 
 class TokenResponse(BaseModel):

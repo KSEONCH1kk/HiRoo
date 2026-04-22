@@ -19,6 +19,8 @@ class User(Base):
     custom_status: Mapped[str | None] = mapped_column(String(128), nullable=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_bot: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     public_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     signing_public_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

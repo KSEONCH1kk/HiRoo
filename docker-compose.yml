@@ -54,6 +54,7 @@ services:
     volumes:
       - ./backend:/app
       - uploads_data:/app/uploads
+      - ./yt-cookies.txt:/app/secrets/yt-cookies.txt:ro
 
   frontend:
     build:

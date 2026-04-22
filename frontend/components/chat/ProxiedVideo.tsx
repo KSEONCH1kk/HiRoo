@@ -1,51 +1,67 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { VideoPlayer, type VideoQuality } from "./VideoPlayer";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 interface Props { youtubeUrl: string; }
 
-interface Info {
+interface SignedQuality {
+  label: string;
+  height: number;
+  progressive: boolean;
+  stream_url: string;
+}
+
+interface Signed {
+  qualities: SignedQuality[];
+  info_url: string;
+  expires_at: number;
   title?: string | null;
   uploader?: string | null;
   duration?: number | null;
   thumbnail?: string | null;
 }
 
-interface Signed {
-  stream_url: string;
-  info_url: string;
-  expires_at: number;
-}
-
 export function ProxiedVideo({ youtubeUrl }: Props) {
   const [playing, setPlaying] = useState(false);
   const [signed, setSigned] = useState<Signed | null>(null);
-  const [info, setInfo] = useState<Info | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const [currentLabel, setCurrentLabel] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     api
       .get<Signed>(`/api/proxy/yt/sign`, { params: { url: youtubeUrl } })
-      .then((r) => { if (!cancelled) setSigned(r.data); })
-      .catch(() => { if (!cancelled) setError("Не удалось подписать ссылку"); });
+      .then((r) => {
+        if (cancelled) return;
+        setSigned(r.data);
+        // Default quality — prefer 720p, else the best available ≤1080p, else the top.
+        const qs = r.data.qualities;
+        const prefer = qs.find((q) => q.height === 720)
+          ?? qs.find((q) => q.height <= 1080)
+          ?? qs[0];
+        if (prefer) setCurrentLabel(prefer.label);
+      })
+      .catch((e) => { if (!cancelled) setError(e?.response?.data?.detail ?? "Не удалось подписать ссылку"); });
     return () => { cancelled = true; };
   }, [youtubeUrl]);
 
-  useEffect(() => {
-    if (!signed) return;
-    const ctrl = new AbortController();
-    fetch(`${API_BASE}${signed.info_url}`, { signal: ctrl.signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
-      .then(setInfo)
-      .catch(() => {});
-    return () => ctrl.abort();
+  const qualities: VideoQuality[] = useMemo(() => {
+    if (!signed) return [];
+    return signed.qualities.map((q) => ({
+      label: q.label,
+      height: q.height,
+      src: `${API_BASE}${q.stream_url}`,
+    }));
   }, [signed]);
 
-  const src = signed ? `${API_BASE}${signed.stream_url}` : "";
+  const currentSrc = useMemo(() => {
+    if (!qualities.length) return "";
+    const q = qualities.find((x) => x.label === currentLabel) ?? qualities[0];
+    return q.src;
+  }, [qualities, currentLabel]);
 
   const fmtDur = (s: number | null | undefined) => {
     if (!s) return null;
@@ -57,20 +73,18 @@ export function ProxiedVideo({ youtubeUrl }: Props) {
   return (
     <div
       style={{
-        width: "100%", maxWidth: 520,
+        width: "100%", maxWidth: 560,
         borderRadius: 10, overflow: "hidden",
-        background: "#000", border: "1px solid var(--line)",
+        background: "var(--bg-2)", border: "1px solid var(--line)",
       }}
     >
-      {playing && src ? (
-        <video
-          ref={videoRef}
-          src={src}
-          controls
-          autoPlay
-          playsInline
-          onError={() => setError("Не удалось загрузить видео")}
-          style={{ width: "100%", maxHeight: 360, display: "block", background: "#000" }}
+      {playing && currentSrc ? (
+        <VideoPlayer
+          src={currentSrc}
+          filename={signed?.title ?? undefined}
+          qualities={qualities}
+          currentLabel={currentLabel ?? undefined}
+          onQualityChange={(q) => setCurrentLabel(q.label)}
         />
       ) : (
         <button
@@ -80,8 +94,8 @@ export function ProxiedVideo({ youtubeUrl }: Props) {
           style={{
             position: "relative", width: "100%", aspectRatio: "16/9",
             border: "none", cursor: signed ? "pointer" : "wait", padding: 0,
-            background: info?.thumbnail
-              ? `#000 url(${info.thumbnail}) center/cover no-repeat`
+            background: signed?.thumbnail
+              ? `#000 url(${signed.thumbnail}) center/cover no-repeat`
               : "#111",
           }}
         >
@@ -107,25 +121,25 @@ export function ProxiedVideo({ youtubeUrl }: Props) {
             <i className="fa-solid fa-shield-halved" style={{ color: "var(--accent)" }} />
             PROXY · YOUTUBE
           </div>
-          {info?.duration ? (
+          {signed?.duration ? (
             <div style={{
               position: "absolute", bottom: 8, right: 8, padding: "2px 7px",
               background: "rgba(0,0,0,0.75)", color: "#fff",
               borderRadius: 5, fontSize: 11, fontFamily: "Geist Mono",
             }}>
-              {fmtDur(info.duration)}
+              {fmtDur(signed.duration)}
             </div>
           ) : null}
         </button>
       )}
-      {info?.title ? (
+      {signed?.title ? (
         <div style={{ padding: "8px 12px", background: "var(--bg-2)" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {info.title}
+            {signed.title}
           </div>
-          {info.uploader ? (
+          {signed.uploader ? (
             <div style={{ fontSize: 11.5, color: "var(--text-2)", marginTop: 2 }}>
-              {info.uploader}
+              {signed.uploader}
             </div>
           ) : null}
         </div>

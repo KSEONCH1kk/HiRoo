@@ -1,3 +1,5 @@
+export type BadgeId = "platform_admin" | "verified" | "server_owner" | "early_user" | (string & {});
+
 export interface User {
   id: string;
   email: string;
@@ -7,9 +9,11 @@ export interface User {
   status: "online" | "idle" | "dnd" | "offline";
   custom_status: string | null;
   is_verified: boolean;
+  is_platform_admin?: boolean;
   created_at: string;
   public_key?: string | null;
   signing_public_key?: string | null;
+  badges?: BadgeId[];
 }
 
 export interface UserPublic {
@@ -19,8 +23,12 @@ export interface UserPublic {
   avatar_url: string | null;
   status: "online" | "idle" | "dnd" | "offline";
   custom_status: string | null;
+  is_verified?: boolean;
+  is_platform_admin?: boolean;
+  created_at?: string | null;
   public_key?: string | null;
   signing_public_key?: string | null;
+  badges?: BadgeId[];
 }
 
 export interface Server {

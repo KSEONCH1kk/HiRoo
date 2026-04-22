@@ -352,3 +352,100 @@ export const voiceApi = {
   token: (room: string) =>
     api.get<{ url: string; token: string }>("/api/voice/token", { params: { room } }).then((r) => r.data),
 };
+
+// ── Developer Applications ───────────────────────────────────────────────
+
+export interface DevApplication {
+  id: string;
+  owner_id: string;
+  name: string;
+  description: string | null;
+  icon_url: string | null;
+  client_id: string;
+  redirect_uris: string[];
+  supports_commands: boolean;
+  supports_voice: boolean;
+  is_verified: boolean;
+  intents: number;
+  public_bot: boolean;
+  created_at: string;
+  has_bot: boolean;
+}
+
+export const applicationsApi = {
+  list: () => api.get<DevApplication[]>("/api/applications").then((r) => r.data),
+  create: (name: string, description?: string) =>
+    api.post<DevApplication & { client_secret: string }>("/api/applications", { name, description }).then((r) => r.data),
+  get: (id: string) => api.get<DevApplication>(`/api/applications/${id}`).then((r) => r.data),
+  patch: (id: string, body: Partial<DevApplication>) =>
+    api.patch<DevApplication>(`/api/applications/${id}`, body).then((r) => r.data),
+  remove: (id: string) => api.delete(`/api/applications/${id}`),
+  resetSecret: (id: string) =>
+    api.post<{ client_secret: string }>(`/api/applications/${id}/secret/reset`).then((r) => r.data),
+  createBot: (id: string) =>
+    api.post<{ token: string; token_suffix: string; bot_user_id: string; shard_count: number }>(
+      `/api/applications/${id}/bot`
+    ).then((r) => r.data),
+  resetBotToken: (id: string) =>
+    api.post<{ token: string; token_suffix: string }>(`/api/applications/${id}/bot/token/reset`).then((r) => r.data),
+  uploadIcon: (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.post<DevApplication>(`/api/applications/${id}/icon`, fd).then((r) => r.data);
+  },
+};
+
+// ── Slash Commands ───────────────────────────────────────────────────────
+
+export interface SlashCommandOption {
+  name: string;
+  description: string;
+  type: number;
+  required?: boolean;
+  choices?: { name: string; value: string | number }[];
+  options?: SlashCommandOption[];
+}
+
+export interface SlashCommand {
+  id: string;
+  application_id: string;
+  type: "slash" | "user" | "message";
+  name: string;
+  description: string;
+  options: SlashCommandOption[];
+  guild_id: string | null;
+}
+
+export const commandsApi = {
+  listForApp: (appId: string) =>
+    api.get<SlashCommand[]>(`/api/commands/applications/${appId}/commands`).then((r) => r.data),
+  forChannel: (args: { guild_id?: string | null; dm_id?: string | null; q?: string }) =>
+    api.get<SlashCommand[]>(`/api/commands/for-channel`, { params: args }).then((r) => r.data),
+};
+
+// ── OAuth2 (consent screen) ──────────────────────────────────────────────
+
+export interface AuthorizeInfo {
+  application: {
+    id: string;
+    client_id: string;
+    name: string;
+    icon_url: string | null;
+    description: string | null;
+    is_verified: boolean;
+    supports_commands: boolean;
+    supports_voice: boolean;
+  };
+  scope: string[];
+  user: { id: string; username: string; avatar_url: string | null };
+}
+
+export const oauth2Api = {
+  authorizeInfo: (params: { client_id: string; scope: string; redirect_uri: string }) =>
+    api.get<AuthorizeInfo>(`/api/oauth2/authorize/info`, { params }).then((r) => r.data),
+  authorize: (body: { client_id: string; redirect_uri: string; scope: string; state?: string; guild_id?: string }) => {
+    const fd = new FormData();
+    Object.entries(body).forEach(([k, v]) => v != null && fd.append(k, v));
+    return api.post<{ location: string }>(`/api/oauth2/authorize`, fd).then((r) => r.data);
+  },
+};

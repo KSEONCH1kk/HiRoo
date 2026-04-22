@@ -4,6 +4,7 @@ import { getSocket } from "@/lib/socket";
 import { uploadsApi, type UploadResult } from "@/lib/api";
 import { EmojiPicker } from "@/components/ui/EmojiPicker";
 import { MentionMenu, type MentionItem } from "./MentionMenu";
+import { CommandPicker } from "@/components/commands/CommandPicker";
 import { useServerRoles } from "@/hooks/useServerRoles";
 import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
@@ -383,6 +384,25 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
           members={members}
           onPick={pickMention}
           onClose={() => setMention(null)}
+        />
+      )}
+      {value.startsWith("/") && !value.includes("\n") && (channelId || dmId) && !sending && (
+        <CommandPicker
+          guildId={serverId}
+          dmId={dmId}
+          query={value.slice(1).split(" ")[0]}
+          onSelect={(cmd) => {
+            const base = `/${cmd.name}`;
+            // Insert the command; keep trailing space if the command has options so
+            // the user can start typing arguments immediately.
+            const next = base + (cmd.options.length > 0 ? " " : " ");
+            setValue(next);
+            setTimeout(() => {
+              const el = textareaRef.current;
+              if (el) { el.focus(); el.selectionStart = el.selectionEnd = next.length; }
+            }, 0);
+          }}
+          onClose={() => { /* dismiss by clearing slash */ }}
         />
       )}
       <input

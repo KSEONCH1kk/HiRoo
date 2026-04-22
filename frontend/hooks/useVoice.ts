@@ -190,11 +190,14 @@ export function useVoice() {
       publishDefaults: {
         dtx: true,
         red: true,
-        videoCodec: "vp8",
+        videoCodec: "h264",
         videoEncoding: { ...VideoPresets.h720.encoding, maxFramerate: 60 },
         videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
-        screenShareEncoding: { maxBitrate: 6_000_000, maxFramerate: 60 },
-        screenShareSimulcastLayers: [ScreenSharePresets.h720fps15],
+        // No simulcast for screen share — publish a single high-quality layer
+        // so viewers always get the full resolution the sharer picked, not
+        // a 720p15 fallback chosen by the SFU adaptive logic.
+        screenShareEncoding: { maxBitrate: 8_000_000, maxFramerate: 60 },
+        screenShareSimulcastLayers: [],
       },
       videoCaptureDefaults: {
         resolution: { ...VideoPresets.h720.resolution, frameRate: 60 },
@@ -417,10 +420,13 @@ export function useVoice() {
         resolution: { ...size, frameRate: vs.screenFps },
         contentHint: "motion",
       }, {
+        videoCodec: "h264",
         screenShareEncoding: {
           maxBitrate: screenBitrate(vs.screenResolution, vs.screenFps),
           maxFramerate: vs.screenFps,
+          priority: "high",
         },
+        screenShareSimulcastLayers: [],
       });
       setIsSharing(true);
     } catch (e: any) {

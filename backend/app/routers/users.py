@@ -11,7 +11,17 @@ from app.core.config import settings
 from app.core.rate_limit import limiter, LIMIT_API
 from app.models.user import User
 from app.schemas.user import UserPublic, UserResponse, UserUpdate, UserStatusUpdate
+from app.services.badges import compute_badges
 from pydantic import BaseModel, Field
+
+
+def _with_badges(user: User, badges: list[str]) -> dict:
+    """Turn an ORM user into a dict enriched with a `badges` list so Pydantic
+    can validate it against UserPublic/UserResponse without us mutating the
+    SQLAlchemy object."""
+    data = {c.name: getattr(user, c.name) for c in user.__table__.columns}
+    data["badges"] = badges
+    return data
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -19,8 +29,12 @@ ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_active_user)):
-    return current_user
+async def get_me(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    badges = await compute_badges(current_user, db)
+    return _with_badges(current_user, badges)
 
 
 @router.patch("/me", response_model=UserResponse)
@@ -116,4 +130,5 @@ async def get_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    badges = await compute_badges(user, db)
+    return _with_badges(user, badges)

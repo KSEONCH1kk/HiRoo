@@ -10,6 +10,9 @@ from app.models.role import Role, MemberRole, Permissions
 from app.models.channel_permission import ChannelRolePermission
 from app.models.webhook import Webhook
 from app.models.ban import ServerBan
+from app.models.application import (
+    Application, Bot, BotCommand, OAuth2AuthorizationCode, OAuth2Token,
+)
 
 __all__ = [
     "User", "Server", "ServerMember", "Channel",
@@ -18,4 +21,6 @@ __all__ = [
     "Notification", "VoiceState",
     "Role", "MemberRole", "Permissions",
     "ChannelRolePermission", "Webhook", "ServerBan",
+    "Application", "Bot", "BotCommand",
+    "OAuth2AuthorizationCode", "OAuth2Token",
 ]

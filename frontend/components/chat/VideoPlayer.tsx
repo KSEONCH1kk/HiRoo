@@ -2,7 +2,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
-interface Props { src: string; filename?: string; }
+export interface VideoQuality { label: string; src: string; height?: number; }
+
+interface Props {
+  src: string;
+  filename?: string;
+  qualities?: VideoQuality[];
+  currentLabel?: string;
+  onQualityChange?: (q: VideoQuality) => void;
+}
 
 function fmt(t: number): string {
   if (!isFinite(t) || t < 0) return "0:00";
@@ -13,7 +21,7 @@ function fmt(t: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function VideoPlayer({ src, filename }: Props) {
+export function VideoPlayer({ src, filename, qualities, currentLabel, onQualityChange }: Props) {
   const isMobile = useIsMobile();
   const vref = useRef<HTMLVideoElement>(null);
   const wref = useRef<HTMLDivElement>(null);
@@ -29,6 +37,69 @@ export function VideoPlayer({ src, filename }: Props) {
   const [pipActive, setPipActive] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [seeking, setSeeking] = useState(false);
+  const [qMenuOpen, setQMenuOpen] = useState(false);
+  const resumeAtRef = useRef<{ time: number; playing: boolean } | null>(null);
+
+  // Attach src to <video>, using hls.js when the URL is an HLS playlist and
+  // native HLS isn't available (Chromium/Firefox). Preserve currentTime + play
+  // state across src swaps (quality change).
+  useEffect(() => {
+    const v = vref.current;
+    if (!v || !src) return;
+
+    const isHls = /\.m3u8(\?|$)/i.test(src);
+    const restore = resumeAtRef.current;
+    resumeAtRef.current = null;
+    const applyRestore = () => {
+      if (!restore) return;
+      try { v.currentTime = restore.time; } catch {}
+      if (restore.playing) v.play().catch(() => {});
+    };
+
+    if (!isHls) {
+      v.src = src;
+      const onMeta = () => { applyRestore(); v.removeEventListener("loadedmetadata", onMeta); };
+      v.addEventListener("loadedmetadata", onMeta);
+      return () => v.removeEventListener("loadedmetadata", onMeta);
+    }
+
+    // HLS path
+    if (v.canPlayType("application/vnd.apple.mpegurl")) {
+      // Safari / iOS — native HLS.
+      v.src = src;
+      const onMeta = () => { applyRestore(); v.removeEventListener("loadedmetadata", onMeta); };
+      v.addEventListener("loadedmetadata", onMeta);
+      return () => v.removeEventListener("loadedmetadata", onMeta);
+    }
+
+    // Dynamic-import hls.js so it's not in the main bundle.
+    let cancelled = false;
+    let hlsInstance: any = null;
+    (async () => {
+      const { default: Hls } = await import("hls.js");
+      if (cancelled) return;
+      if (!Hls.isSupported()) {
+        v.src = src;
+        return;
+      }
+      hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: false });
+      hlsInstance.loadSource(src);
+      hlsInstance.attachMedia(v);
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, applyRestore);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (hlsInstance) { try { hlsInstance.destroy(); } catch {} }
+    };
+  }, [src]);
+
+  const switchQuality = (q: VideoQuality) => {
+    const v = vref.current;
+    if (v) resumeAtRef.current = { time: v.currentTime, playing: !v.paused };
+    setQMenuOpen(false);
+    onQualityChange?.(q);
+  };
 
   useEffect(() => {
     const v = vref.current;
@@ -127,7 +198,6 @@ export function VideoPlayer({ src, filename }: Props) {
     >
       <video
         ref={vref}
-        src={src}
         preload="metadata"
         playsInline
         onClick={toggle}
@@ -227,6 +297,59 @@ export function VideoPlayer({ src, filename }: Props) {
             {fmt(cur)} / {fmt(dur)}
           </span>
           <div style={{ flex: 1 }} />
+          {qualities && qualities.length > 1 && (
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setQMenuOpen((v) => !v); }}
+                title="Качество"
+                style={{
+                  height: 28, padding: "0 8px", borderRadius: 6, border: "none",
+                  cursor: "pointer", background: qMenuOpen ? "rgba(255,255,255,0.14)" : "transparent",
+                  color: "#fff", fontSize: 11, fontFamily: "Geist Mono",
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                }}
+              >
+                <i className="fa-solid fa-gear" style={{ fontSize: 11 }} />
+                {currentLabel ?? "авто"}
+              </button>
+              {qMenuOpen && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    position: "absolute", bottom: 36, right: 0, minWidth: 120,
+                    background: "var(--bg-2)", border: "1px solid var(--line-strong)",
+                    borderRadius: 8, padding: 4,
+                    boxShadow: "0 10px 30px rgba(0,0,0,0.5)", zIndex: 5,
+                  }}
+                >
+                  {qualities.map((q) => {
+                    const active = q.label === currentLabel;
+                    return (
+                      <button
+                        key={q.label}
+                        onClick={() => switchQuality(q)}
+                        style={{
+                          display: "flex", width: "100%", alignItems: "center", gap: 8,
+                          padding: "6px 10px", borderRadius: 5, border: "none",
+                          background: active ? "var(--bg-active)" : "transparent",
+                          color: "var(--text-0)", cursor: "pointer",
+                          fontSize: 12, fontFamily: "Geist Mono", textAlign: "left",
+                        }}
+                        onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                        onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
+                      >
+                        <i
+                          className={`fa-solid ${active ? "fa-circle-check" : "fa-circle"}`}
+                          style={{ fontSize: 10, color: active ? "var(--accent)" : "var(--text-3)" }}
+                        />
+                        {q.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           {typeof document !== "undefined" && "pictureInPictureEnabled" in document && (
             <Btn icon={pipActive ? "fa-xmark" : "fa-clone"} onClick={togglePip} title="Picture-in-Picture" />
           )}

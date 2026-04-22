@@ -16,6 +16,10 @@ from app.middleware.security import SecurityHeadersMiddleware
 from app.middleware.logging import LoggingMiddleware
 from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy
 from app.routers import webhooks as webhooks_router
+from app.routers import applications as applications_router
+from app.routers import oauth2 as oauth2_router
+from app.routers import commands as commands_router
+from app.routers import bot_gateway as bot_gateway_router
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 
@@ -65,6 +69,9 @@ MIGRATIONS = [
     """,
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS public_key VARCHAR(128)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS signing_public_key VARCHAR(128)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_platform_admin BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT FALSE",
+    "CREATE INDEX IF NOT EXISTS ix_users_is_bot ON users (is_bot)",
 ]
 
 
@@ -135,6 +142,10 @@ app.include_router(unfurl.router)
 app.include_router(webhooks_router.channel_router)
 app.include_router(webhooks_router.public_router)
 app.include_router(proxy.router)
+app.include_router(applications_router.router)
+app.include_router(oauth2_router.router)
+app.include_router(commands_router.router)
+app.include_router(bot_gateway_router.router)
 
 
 @app.get("/health")

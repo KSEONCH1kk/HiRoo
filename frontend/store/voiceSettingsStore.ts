@@ -27,8 +27,13 @@ export function screenResolutionSize(r: ScreenRes): { width: number; height: num
 }
 
 export function screenBitrate(r: ScreenRes, fps: ScreenFps): number {
-  const base = r === "720" ? 2_500_000 : r === "1440" ? 8_000_000 : 4_000_000;
-  return fps >= 60 ? Math.round(base * 1.5) : base;
+  // Tuned to roughly match Discord Nitro screenshare quality.
+  // 720p30 → 3M, 720p60 → 5M
+  // 1080p30 → 6M, 1080p60 → 10M
+  // 1440p30 → 12M, 1440p60 → 18M
+  const base30 = r === "720" ? 3_000_000 : r === "1440" ? 12_000_000 : 6_000_000;
+  const base60 = r === "720" ? 5_000_000 : r === "1440" ? 18_000_000 : 10_000_000;
+  return fps >= 60 ? base60 : base30;
 }
 
 export const useVoiceSettingsStore = create<State>()(

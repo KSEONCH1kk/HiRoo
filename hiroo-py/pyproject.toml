@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hiroo"
+version = "0.1.0"
+description = "Official Python client for the HiRoo bot gateway and REST API."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "HiRoo" }]
+dependencies = [
+  "aiohttp>=3.9",
+  "websockets>=12.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["hiroo*"]
