@@ -176,3 +176,28 @@ input[type="checkbox"]:indeterminate::before {
   from { transform: scale(0.5); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+
+/* ─── Fullscreen video ─────────────────────────────────────────────
+   When a voice-tile or message-video container goes into fullscreen,
+   override its rounded / bounded styling so the <video> really takes
+   up the whole screen. Without these rules Chromium keeps the original
+   min-height / border-radius / background-clip, so the video appears
+   letterboxed inside a small rectangle. */
+:fullscreen, :-webkit-full-screen {
+  background: #000 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  min-height: 100vh !important;
+  min-width: 100vw !important;
+  max-height: 100vh !important;
+  max-width: 100vw !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+:fullscreen video, :-webkit-full-screen video {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  object-fit: contain !important;
+}

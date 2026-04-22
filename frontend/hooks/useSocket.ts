@@ -53,6 +53,24 @@ export function useSocket() {
       if (serverId && msg.channel_id !== activeChannelId) {
         useUnreadStore.getState().addServerMention(serverId);
         playNotify();
+        const title = msg.author?.display_name ?? msg.author?.username ?? "HiRoo";
+        const trimmed = content.slice(0, 180);
+        // Desktop (Electron) — native Windows/macOS/Linux toast.
+        try {
+          const w = typeof window !== "undefined" ? (window as any).hiroo : undefined;
+          if (w?.isDesktop && !document.hasFocus()) w.notify(title, trimmed);
+        } catch {}
+        // Mobile (Capacitor) — Android / iOS local notification.
+        try {
+          const cap = typeof window !== "undefined" ? (window as any).Capacitor : undefined;
+          const ln = cap?.Plugins?.LocalNotifications;
+          if (ln && cap.isNativePlatform()) {
+            ln.schedule({ notifications: [{
+              id: Math.floor(Math.random() * 2_000_000_000),
+              title, body: trimmed,
+            }] }).catch(() => {});
+          }
+        } catch {}
       }
     };
     const onMessageUpdate = (msg: Message) => updateMessage(msg);
@@ -74,6 +92,22 @@ export function useSocket() {
       if (!isGroup) {
         useUnreadStore.getState().addDmUnread(msg.dm_id);
         playNotify();
+        const title = msg.author?.display_name ?? msg.author?.username ?? "HiRoo";
+        const trimmed = (msg.content || "").slice(0, 180);
+        try {
+          const w = typeof window !== "undefined" ? (window as any).hiroo : undefined;
+          if (w?.isDesktop && !document.hasFocus()) w.notify(title, trimmed);
+        } catch {}
+        try {
+          const cap = typeof window !== "undefined" ? (window as any).Capacitor : undefined;
+          const ln = cap?.Plugins?.LocalNotifications;
+          if (ln && cap.isNativePlatform()) {
+            ln.schedule({ notifications: [{
+              id: Math.floor(Math.random() * 2_000_000_000),
+              title, body: trimmed,
+            }] }).catch(() => {});
+          }
+        } catch {}
         return;
       }
 

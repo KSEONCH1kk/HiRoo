@@ -255,6 +255,7 @@ function FloatingCall({ title, voice, userMap, onMax, onLeave }: { title: string
 function Tile({ p, self, profile }: { p: VoiceParticipant; self?: boolean; profile?: UserPublic }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -262,31 +263,62 @@ function Tile({ p, self, profile }: { p: VoiceParticipant; self?: boolean; profi
     if (el && track) el.srcObject = new MediaStream([track]);
   }, [p.cameraTrack, p.screenTrack]);
 
-  const toggleFullscreen = () => {
-    const el = containerRef.current;
-    if (!el) return;
-    if (!document.fullscreenElement) el.requestFullscreen?.();
-    else document.exitFullscreen?.();
-  };
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setExpanded(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
+
+  // Collapse automatically if the track that made the tile worth expanding
+  // goes away (screen share ended, camera turned off, participant left).
+  useEffect(() => {
+    const hasTrack = !!(p.screenTrack || p.cameraTrack);
+    if (expanded && !hasTrack) setExpanded(false);
+  }, [expanded, p.screenTrack, p.cameraTrack]);
+
+  const toggleFullscreen = () => setExpanded((v) => !v);
 
   const hue = 268;
   const video = !!(p.screenTrack || p.cameraTrack);
   const displayName = profile?.display_name ?? profile?.username ?? p.name;
+
+  const baseStyle: React.CSSProperties = {
+    borderRadius: 14, overflow: "hidden",
+    background: `linear-gradient(160deg, oklch(35% 0.08 ${hue}), oklch(18% 0.04 ${(hue + 30) % 360}))`,
+    border: `1px solid ${p.isSpeaking ? "var(--ok)" : "var(--line)"}`,
+    position: "relative", minHeight: 140,
+    boxShadow: p.isSpeaking ? "0 0 0 2px var(--ok)" : "none",
+    cursor: video ? "pointer" : "default",
+    transition: "box-shadow 120ms, border-color 120ms",
+  };
+
+  const expandedStyle: React.CSSProperties = {
+    position: "fixed", inset: 0, zIndex: 9999,
+    borderRadius: 0, border: "none", boxShadow: "none",
+    background: "#000",
+    minHeight: "100vh", minWidth: "100vw",
+    cursor: "default",
+    display: "flex", alignItems: "center", justifyContent: "center",
+  };
+
   return (
     <div
       ref={containerRef}
       onDoubleClick={video ? toggleFullscreen : undefined}
-      style={{
-        borderRadius: 14, overflow: "hidden",
-        background: `linear-gradient(160deg, oklch(35% 0.08 ${hue}), oklch(18% 0.04 ${(hue + 30) % 360}))`,
-        border: `1px solid ${p.isSpeaking ? "var(--ok)" : "var(--line)"}`,
-        position: "relative", minHeight: 140,
-        boxShadow: p.isSpeaking ? "0 0 0 2px var(--ok)" : "none",
-        cursor: video ? "pointer" : "default",
-        transition: "box-shadow 120ms, border-color 120ms",
-      }}>
+      style={expanded ? expandedStyle : baseStyle}
+    >
       {video ? (
-        <video ref={videoRef} autoPlay playsInline muted={self} style={{ width: "100%", height: "100%", objectFit: "contain", background: "#000" }} />
+        <video
+          ref={videoRef}
+          autoPlay playsInline muted={self}
+          style={{
+            width: expanded ? "100vw" : "100%",
+            height: expanded ? "100vh" : "100%",
+            objectFit: "contain",
+            background: "#000",
+          }}
+        />
       ) : (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Avatar name={profile?.username ?? p.name} size={76} shape="circle" avatarUrl={profile?.avatar_url} />
@@ -295,13 +327,29 @@ function Tile({ p, self, profile }: { p: VoiceParticipant; self?: boolean; profi
       {video && (
         <button
           onClick={toggleFullscreen}
-          title="Раскрыть"
-          style={{ position: "absolute", top: 8, right: 8, width: 28, height: 28, borderRadius: 6, border: "none", cursor: "pointer", background: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
+          title={expanded ? "Свернуть (Esc)" : "Раскрыть"}
+          style={{
+            position: "absolute",
+            top: expanded ? 14 : 8, right: expanded ? 14 : 8,
+            width: 32, height: 32, borderRadius: 8, border: "none", cursor: "pointer",
+            background: "rgba(0,0,0,0.6)", color: "#fff",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 2,
+          }}
         >
-          <i className="fa-solid fa-expand" style={{ fontSize: 12 }} />
+          <i className={`fa-solid ${expanded ? "fa-compress" : "fa-expand"}`} style={{ fontSize: 13 }} />
         </button>
       )}
-      <div style={{ position: "absolute", left: 10, bottom: 10, padding: "4px 9px", borderRadius: 6, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 500, color: "#fff" }}>
+      <div style={{
+        position: "absolute",
+        left: expanded ? 18 : 10,
+        bottom: expanded ? 18 : 10,
+        padding: "4px 9px", borderRadius: 6,
+        background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)",
+        display: "inline-flex", alignItems: "center", gap: 6,
+        fontSize: expanded ? 14 : 12, fontWeight: 500, color: "#fff",
+        zIndex: 2,
+      }}>
         {p.isMuted && <i className="fa-solid fa-microphone-slash" style={{ fontSize: 10, color: "var(--danger)" }} />}
         {displayName}
         {self && <span style={{ fontSize: 10, opacity: 0.7, fontFamily: "Geist Mono" }}>· вы</span>}

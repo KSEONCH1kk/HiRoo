@@ -17,6 +17,35 @@ import { useVoicePresenceStore } from "@/store/voicePresenceStore";
 import { useCallStore } from "@/store/callStore";
 import { useVoiceSettingsStore, screenResolutionSize, screenBitrate } from "@/store/voiceSettingsStore";
 
+// Keeps the Android mic alive while the app is backgrounded. Silently skipped
+// on every non-Android platform (including Electron / web).
+async function _startVoiceForegroundService(): Promise<void> {
+  if (typeof window === "undefined") return;
+  const cap = (window as any).Capacitor;
+  if (!cap?.isNativePlatform?.() || cap.getPlatform() !== "android") return;
+  const svc = cap.Plugins?.ForegroundService;
+  if (!svc) return;
+  try {
+    await svc.startForegroundService({
+      id: 3001,
+      title: "HiRoo — в голосовом канале",
+      body: "Микрофон активен",
+      smallIcon: "ic_stat_hiroo",
+      silent: true,
+      foregroundServiceType: "microphone",
+    });
+  } catch {}
+}
+
+async function _stopVoiceForegroundService(): Promise<void> {
+  if (typeof window === "undefined") return;
+  const cap = (window as any).Capacitor;
+  if (!cap?.isNativePlatform?.() || cap.getPlatform() !== "android") return;
+  const svc = cap.Plugins?.ForegroundService;
+  if (!svc) return;
+  try { await svc.stopForegroundService(); } catch {}
+}
+
 export interface VoiceParticipant {
   identity: string;
   name: string;
@@ -317,6 +346,11 @@ export function useVoice() {
 
     try { getSocket().emit("voice_join", { room_id: roomName }); } catch {}
 
+    // On Android (Capacitor), promote the call to a foreground service so the
+    // mic keeps working while the app is backgrounded / screen locked. No-op
+    // on desktop / web.
+    try { await _startVoiceForegroundService(); } catch {}
+
     if (e2eeMode === "channel-per-sender") {
       for (const p of room.remoteParticipants.values()) {
         if (p.identity) sendMyKeyTo(p.identity);
@@ -335,6 +369,7 @@ export function useVoice() {
       try { await r.disconnect(); } catch {}
     }
     try { getSocket().emit("voice_leave", {}); } catch {}
+    try { await _stopVoiceForegroundService(); } catch {}
     const myId = useAuthStore.getState().user?.id;
     if (myId && leavingRoom) {
       useVoicePresenceStore.getState().leave(leavingRoom, myId);

@@ -14,6 +14,7 @@ from app.models.application import (
     Application, Bot, BotCommand, OAuth2AuthorizationCode, OAuth2Token,
 )
 from app.models.interaction import Interaction
+from app.models.device import DeviceToken
 
 __all__ = [
     "User", "Server", "ServerMember", "Channel",
@@ -25,4 +26,5 @@ __all__ = [
     "Application", "Bot", "BotCommand",
     "OAuth2AuthorizationCode", "OAuth2Token",
     "Interaction",
+    "DeviceToken",
 ]

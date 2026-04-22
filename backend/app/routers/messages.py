@@ -194,6 +194,7 @@ async def send_message(
     # Mention notifications
     import re
     mentions = re.findall(r"@(\w+)", body.content)
+    mentioned_user_ids: list[str] = []
     if mentions:
         result = await db.execute(
             select(ServerMember).where(ServerMember.server_id == channel.server_id)
@@ -212,6 +213,30 @@ async def send_message(
                     channel_id=channel_id,
                     content=body.content[:200],
                 )
+                mentioned_user_ids.append(str(u.id))
+
+    # FCM push to offline mentioned users — so they get a notification even
+    # when the app isn't running. Online users already saw it via WS.
+    if mentioned_user_ids:
+        offline = [uid for uid in mentioned_user_ids if not manager.is_online(uid)]
+        if offline:
+            try:
+                from app.services.fcm import send_to_user as _fcm
+                import asyncio as _asyncio
+                author_name = current_user.display_name or current_user.username
+                ch_title = f"#{channel.name}" if getattr(channel, "name", None) else ""
+                await _asyncio.gather(*[
+                    _fcm(uid,
+                         title=f"{author_name} {ch_title}".strip(),
+                         body=(body.content or "")[:240],
+                         data={"channel_id": str(channel_id),
+                               "server_id": str(channel.server_id)})
+                    for uid in offline
+                ], return_exceptions=True)
+            except Exception:
+                import logging
+                logging.getLogger("hiroo.fcm").exception("mention push failed")
+
     return resp
 
 

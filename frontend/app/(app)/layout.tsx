@@ -7,6 +7,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useServerStore } from "@/store/serverStore";
 import { useSocket } from "@/hooks/useSocket";
 import { useE2EEInit } from "@/hooks/useE2EEInit";
+import { useMobileIntegration } from "@/hooks/useMobileIntegration";
 import { serversApi, channelsApi } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { ServerRail } from "@/components/layout/ServerRail";
@@ -18,6 +19,7 @@ import { IncomingCall } from "@/components/modals/IncomingCall";
 import { ImageViewer } from "@/components/chat/ImageViewer";
 import { CommandPalette } from "@/components/modals/CommandPalette";
 import { EphemeralToasts } from "@/components/chat/EphemeralToasts";
+import { ScreenSharePickerHost } from "@/components/desktop/ScreenSharePicker";
 import { ProfilePopout } from "@/components/modals/ProfilePopout";
 import { VoiceCall } from "@/components/voice/VoiceCall";
 import { useCallStore } from "@/store/callStore";
@@ -43,6 +45,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   useSocket();
   useE2EEInit();
+  useMobileIntegration();
 
   // Auto-close drawers on navigation (mobile UX)
   useEffect(() => { if (isMobile) closeAll(); }, [pathname, isMobile]);
@@ -259,6 +262,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <CommandPalette show={cmdOpen} onClose={() => setCmdOpen(false)} />
       <ProfilePopout />
       <EphemeralToasts />
+      <ScreenSharePickerHost />
 
     </div>
   );

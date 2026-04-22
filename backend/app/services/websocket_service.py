@@ -131,12 +131,34 @@ class ConnectionManager:
 
     async def broadcast_to_users(self, user_ids: list[str], data: dict, exclude_user: str | None = None):
         tasks = []
+        offline: list[str] = []
         for uid in user_ids:
             if uid == exclude_user:
                 continue
-            tasks.append(self.send_to_user(uid, data))
+            if self.is_online(uid):
+                tasks.append(self.send_to_user(uid, data))
+            else:
+                offline.append(uid)
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        # Reach offline users over FCM for DM messages — the one event where
+        # push has clearest value. Mentions inside servers go through a
+        # separate path (routers/messages.py) since we need server context.
+        if offline and data.get("event") == "dm_message_create":
+            d = data.get("data") or {}
+            author = d.get("author") or {}
+            title = author.get("display_name") or author.get("username") or "HiRoo"
+            body = (d.get("content") or "")[:240]
+            if body:
+                try:
+                    from app.services.fcm import send_to_user as _fcm
+                    await asyncio.gather(*[
+                        _fcm(uid, title=title, body=body, data={"dm_id": d.get("dm_id", "")})
+                        for uid in offline
+                    ], return_exceptions=True)
+                except Exception:
+                    import logging as _l
+                    _l.getLogger("hiroo.ws").exception("FCM fanout failed")
         # For DM broadcasts, dispatch to any bot that's a DM participant.
         try:
             import logging as _logging

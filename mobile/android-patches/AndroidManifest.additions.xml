@@ -1,0 +1,58 @@
+<!--
+  Apply these bits to android/app/src/main/AndroidManifest.xml AFTER
+  `npx cap add android` has generated the base one.
+
+  In-place edits (use your editor's Find-and-Replace):
+
+  1) In the root <manifest> tag, add these permission entries right below
+     the existing <uses-permission android:name="android.permission.INTERNET" />:
+-->
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+<uses-permission android:name="android.permission.VIBRATE" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+<uses-feature android:name="android.hardware.microphone" android:required="false" />
+<uses-feature android:name="android.hardware.camera"     android:required="false" />
+
+<!--
+  2) Inside <application ...>, enable cleartext only if you're testing
+     against local HTTP endpoints. For production (hiroo.intave.tech) HTTPS
+     only — keep it false.
+
+     Also force hardware acceleration (needed for smooth WebRTC video):
+       android:hardwareAccelerated="true"
+       android:usesCleartextTraffic="false"
+
+  3) Inside <application>, add the foreground-service declaration so the
+     mic/camera keep working when the user tabs away during a voice call:
+-->
+<service
+    android:name="com.getcapacitor.plugin.background.BackgroundService"
+    android:exported="false"
+    android:foregroundServiceType="microphone|camera|mediaProjection" />
+
+<!--
+  4) Inside the <activity android:name=".MainActivity"> tag, ensure:
+       android:screenOrientation="unspecified"
+       android:resizeableActivity="true"
+       android:windowSoftInputMode="adjustResize"
+       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode"
+
+  5) Optional: deep linking so invite links open the app directly.
+     Add inside <activity>:
+-->
+<intent-filter android:autoVerify="true">
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="https" android:host="hiroo.intave.tech" />
+</intent-filter>

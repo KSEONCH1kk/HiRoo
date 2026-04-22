@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>HiRoo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #0e0e13; color: #fff;
+    font-family: "Segoe UI", -apple-system, Roboto, sans-serif; }
+  .wrap { display: flex; align-items: center; justify-content: center; height: 100%; gap: 14px; flex-direction: column; }
+  .logo { width: 72px; height: 72px; border-radius: 22px;
+          background: #7c5cff; color: #fff;
+          display: flex; align-items: center; justify-content: center;
+          font-family: Georgia, serif; font-size: 36px; letter-spacing: -2px; }
+  .r { font-style: italic; opacity: 0.85; margin-left: -4px; }
+  .t { font-size: 14px; opacity: 0.6; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">H<span class="r">r</span></div>
+    <div class="t">Соединяемся…</div>
+  </div>
+  <script>
+    // The Capacitor config's `server.url` takes over once the WebView is
+    // ready — this page is just a pretty splash while Android loads the
+    // native shell. It also acts as an offline fallback if HiRoo is
+    // unreachable.
+    setTimeout(() => {
+      if (!navigator.onLine) {
+        document.querySelector(".t").textContent = "Нет интернета. Проверьте соединение.";
+      }
+    }, 3000);
+  </script>
+</body>
+</html>

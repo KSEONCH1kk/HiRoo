@@ -1,0 +1,36 @@
+<!--
+  Open this file in a browser, zoom to 100%, and screenshot the tile at
+  exactly 1024×1024 → save as `resources/icon.png`.
+  Alternatively convert to PNG with any online SVG→PNG tool set to 1024px.
+
+  Use the same HTML verbatim for the splash source, just render it on a
+  transparent background centered in a 2732×2732 canvas.
+-->
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; width: 1024px; height: 1024px; background: transparent; }
+  .tile {
+    width: 1024px; height: 1024px;
+    background: #7c5cff;
+    border-radius: 326px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Instrument Serif", Georgia, serif;
+    font-size: 512px;
+    font-weight: 600;
+    letter-spacing: -22px;
+    color: #fff;
+    line-height: 1;
+  }
+  .r { font-style: italic; opacity: 0.85; margin-left: -40px; }
+</style>
+</head>
+<body>
+  <div class="tile">H<span class="r">r</span></div>
+</body>
+</html>

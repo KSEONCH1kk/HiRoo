@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "106905712509",
+    "project_id": "hiroo-bb647",
+    "storage_bucket": "hiroo-bb647.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:106905712509:android:1f8d2e226d2a6f98563e14",
+        "android_client_info": {
+          "package_name": "tech.intave.hiroo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBXq6KTIiO1vMUs5Rn7qTRm8sp42b2ljqo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

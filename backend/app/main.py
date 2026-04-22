@@ -21,6 +21,8 @@ from app.routers import oauth2 as oauth2_router
 from app.routers import commands as commands_router
 from app.routers import bot_gateway as bot_gateway_router
 from app.routers import interactions as interactions_router
+from app.routers import desktop as desktop_router
+from app.routers import mobile as mobile_router
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 
@@ -75,6 +77,19 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_users_is_bot ON users (is_bot)",
     "ALTER TABLE messages ADD COLUMN IF NOT EXISTS components JSONB",
     "ALTER TABLE messages ADD COLUMN IF NOT EXISTS application_id UUID",
+    # device_tokens table — also created by Base.metadata.create_all but
+    # listing here makes the intent explicit and safe on already-running DBs.
+    """
+    CREATE TABLE IF NOT EXISTS device_tokens (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token VARCHAR(512) NOT NULL UNIQUE,
+        platform VARCHAR(16) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        last_used_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_device_tokens_user_id ON device_tokens (user_id)",
 ]
 
 
@@ -109,10 +124,16 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-# CORS
+# CORS — also whitelist Capacitor's synthetic origins so our Android / iOS
+# shell can talk to the API. On Android WebView the origin is "https://localhost",
+# on iOS "capacitor://localhost".
+_CORS_ORIGINS = list(settings.CORS_ORIGINS) + [
+    "https://localhost",
+    "capacitor://localhost",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -150,6 +171,8 @@ app.include_router(oauth2_router.router)
 app.include_router(commands_router.router)
 app.include_router(bot_gateway_router.router)
 app.include_router(interactions_router.router)
+app.include_router(desktop_router.router)
+app.include_router(mobile_router.router)
 
 
 @app.get("/health")

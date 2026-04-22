@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Solid accent square, 14/44 corner radius from the web UI scaled up. -->
+  <rect width="256" height="256" rx="82" fill="#7c5cff"/>
+  <!-- "Hr" — same Instrument Serif lockup used in /login, the tray button,
+       etc. Letter-spacing / italic-r offset / opacity 0.85 come straight
+       from frontend/app/(auth)/login/page.tsx (scaled by ~4× vs 40px font). -->
+  <text x="128" y="184" text-anchor="middle" fill="#ffffff"
+        font-family="'Instrument Serif', 'Playfair Display', Georgia, serif"
+        font-size="160" font-weight="600" letter-spacing="-8">
+    H<tspan dx="-12" font-style="italic" opacity="0.85">r</tspan>
+  </text>
+</svg>

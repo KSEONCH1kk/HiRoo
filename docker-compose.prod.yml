@@ -42,6 +42,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS}
       ENVIRONMENT: production
       LOG_LEVEL: INFO
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CREDENTIALS_PATH: /app/secrets/firebase.json
     depends_on:
       db:
         condition: service_healthy
@@ -50,6 +52,7 @@ services:
     volumes:
       - uploads_data:/app/uploads
       - ./yt-cookies.txt:/app/secrets/yt-cookies.txt:ro
+      - ./firebase.json:/app/secrets/firebase.json:ro
     expose:
       - "8000"
 

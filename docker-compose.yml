@@ -44,6 +44,8 @@ services:
       LIVEKIT_URL: wss://hiroo.intave.tech/livekit/
       LIVEKIT_API_KEY: devkey
       LIVEKIT_API_SECRET: devsecret-change-me-to-a-random-32-char-string
+      FIREBASE_PROJECT_ID: hiroo-bb647
+      FIREBASE_CREDENTIALS_PATH: /app/secrets/firebase.json
     ports:
       - "8000:8000"
     depends_on:
@@ -55,6 +57,7 @@ services:
       - ./backend:/app
       - uploads_data:/app/uploads
       - ./yt-cookies.txt:/app/secrets/yt-cookies.txt:ro
+      - ./firebase.json:/app/secrets/firebase.json:ro
 
   frontend:
     build:
