@@ -45,12 +45,12 @@ async def echo(ctx: hiroo.CommandContext, text: str):
 
 @bot.component("like")
 async def on_like(ctx: hiroo.CommandContext):
-    await ctx.respond("Thanks!", ephemeral=True)
+    await ctx.respond("Thanks!", ephemeral=False)
 
 
 @bot.component("dislike")
 async def on_dislike(ctx: hiroo.CommandContext):
-    await ctx.respond("Noted.", ephemeral=True)
+    await ctx.respond("Noted.", ephemeral=False)
 
 
 if __name__ == "__main__":

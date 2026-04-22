@@ -105,8 +105,18 @@ async def _load_guilds(bot_user_id: uuid.UUID) -> list[dict]:
 
 
 async def _send(ws: WebSocket, payload: dict) -> None:
+    # Skip if the socket is already closed — avoids noisy
+    # "websocket.send after close" RuntimeError from the ASGI layer.
     try:
+        client_state = getattr(ws, "client_state", None)
+        if client_state is not None and getattr(client_state, "name", None) == "DISCONNECTED":
+            return
+        app_state = getattr(ws, "application_state", None)
+        if app_state is not None and getattr(app_state, "name", None) == "DISCONNECTED":
+            return
         await ws.send_text(json.dumps(payload))
+    except RuntimeError:
+        pass
     except Exception:
         pass
 
@@ -207,6 +217,8 @@ async def bot_gateway(ws: WebSocket):
             guild_ids={uuid.UUID(g["id"]) for g in my_guilds},
         )
         _connections[(app.id, shard_id)] = conn
+        log.info("bot gateway READY: bot_user=%s app=%s shard=%s/%s intents=%s guilds=%s",
+                 bot.user_id, app.id, shard_id, shard_count, intents, len(conn.guild_ids))
 
         async with async_session() as db:
             u = (await db.execute(select(User).where(User.id == bot.user_id))).scalar_one()
@@ -303,27 +315,36 @@ async def dispatch_to_bot(bot_user_id: uuid.UUID, event: str, data: dict, guild_
        - owns the guild in its shard;
        - is currently connected."""
     required = event_requires_intent(event)
-    # Find bot's application to locate its connections.
     async with async_session() as db:
         r = await db.execute(select(Bot).where(Bot.user_id == bot_user_id))
         bot = r.scalar_one_or_none()
     if not bot:
+        log.warning("dispatch_to_bot: no Bot row for user=%s", bot_user_id)
         return
+    matched = 0
     for (app_id, shard_id), conn in list(_connections.items()):
         if app_id != bot.application_id:
             continue
         if required and not (conn.intents & int(required)):
+            log.info("dispatch skip: bot=%s intent mismatch evt=%s (need=%s have=%s)",
+                     bot_user_id, event, int(required), conn.intents)
             continue
         if guild_id is not None:
             if _shard_for_guild(guild_id, conn.shard_count) != shard_id:
                 continue
             if guild_id not in conn.guild_ids:
+                log.info("dispatch skip: bot=%s guild=%s not in conn.guild_ids (%s)",
+                         bot_user_id, guild_id, len(conn.guild_ids))
                 continue
         conn.seq += 1
         await _send(conn.ws, {
             "op": OP_DISPATCH, "s": conn.seq, "t": event.upper(),
             "d": data,
         })
+        matched += 1
+    if matched == 0:
+        log.info("dispatch_to_bot: no matching connection for bot=%s evt=%s guild=%s",
+                 bot_user_id, event, guild_id)
 
 
 async def dispatch_to_all_bots_in_guild(guild_id: uuid.UUID, event: str, data: dict) -> None:
@@ -336,3 +357,48 @@ async def dispatch_to_all_bots_in_guild(guild_id: uuid.UUID, event: str, data: d
         bots = list(rows.scalars())
     for bot in bots:
         await dispatch_to_bot(bot.user_id, event, data, guild_id=guild_id)
+
+
+async def add_bot_to_guild(bot_user_id: uuid.UUID, guild_id: uuid.UUID) -> None:
+    """Tell every live connection of this bot that it just joined a guild.
+    Keeps dispatch_to_bot happy (its `guild_id in conn.guild_ids` check)."""
+    async with async_session() as db:
+        br = await db.execute(select(Bot).where(Bot.user_id == bot_user_id))
+        bot = br.scalar_one_or_none()
+        if not bot:
+            return
+        from app.models.server import Server
+        gr = await db.execute(select(Server).where(Server.id == guild_id))
+        g = gr.scalar_one_or_none()
+    if not g:
+        return
+    for (app_id, shard_id), conn in list(_connections.items()):
+        if app_id != bot.application_id:
+            continue
+        if _shard_for_guild(guild_id, conn.shard_count) != shard_id:
+            continue
+        conn.guild_ids.add(guild_id)
+        conn.seq += 1
+        await _send(conn.ws, {
+            "op": OP_DISPATCH, "s": conn.seq, "t": "GUILD_CREATE",
+            "d": {"id": str(g.id), "name": g.name, "icon_url": g.icon_url, "owner_id": str(g.owner_id)},
+        })
+
+
+async def remove_bot_from_guild(bot_user_id: uuid.UUID, guild_id: uuid.UUID) -> None:
+    async with async_session() as db:
+        br = await db.execute(select(Bot).where(Bot.user_id == bot_user_id))
+        bot = br.scalar_one_or_none()
+        if not bot:
+            return
+    for (app_id, shard_id), conn in list(_connections.items()):
+        if app_id != bot.application_id:
+            continue
+        if guild_id not in conn.guild_ids:
+            continue
+        conn.guild_ids.discard(guild_id)
+        conn.seq += 1
+        await _send(conn.ws, {
+            "op": OP_DISPATCH, "s": conn.seq, "t": "GUILD_DELETE",
+            "d": {"id": str(guild_id)},
+        })

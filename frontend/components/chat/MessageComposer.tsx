@@ -193,7 +193,62 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
     if (sending || hasPendingUploads || !hasContent) return;
     setSending(true);
     try {
-      let text = value.trim();
+      const text0 = value.trim();
+      // Slash command with arguments — dispatch as an interaction instead of a plain message.
+      if (text0.startsWith("/") && (channelId || dmId)) {
+        const firstSpace = text0.indexOf(" ");
+        const cmdName = firstSpace < 0 ? text0.slice(1) : text0.slice(1, firstSpace);
+        const argsText = firstSpace < 0 ? "" : text0.slice(firstSpace + 1);
+        if (/^[a-z0-9_-]+$/i.test(cmdName)) {
+          try {
+            const { commandsApi, interactionsApi } = await import("@/lib/api");
+            const matches = await commandsApi.forChannel({
+              guild_id: serverId ?? null, dm_id: dmId ?? null, q: cmdName,
+            });
+            const cmd = matches.find((c) => c.name === cmdName);
+            if (cmd) {
+              // Naive argv split: split by spaces, last option soaks up the rest.
+              const opts = cmd.options ?? [];
+              const parts = argsText.length ? argsText.split(/\s+/) : [];
+              const options: Record<string, unknown> = {};
+              for (let i = 0; i < opts.length; i++) {
+                const o = opts[i];
+                let raw: string | undefined;
+                if (i === opts.length - 1) raw = parts.slice(i).join(" ") || undefined;
+                else raw = parts[i];
+                if (raw == null || raw === "") {
+                  if (o.required) { setSending(false); return; }  // missing required arg — don't send
+                  continue;
+                }
+                if (o.type === 4) options[o.name] = parseInt(raw, 10);
+                else if (o.type === 5) options[o.name] = /^(1|true|yes|y)$/i.test(raw);
+                else if (o.type === 10) options[o.name] = parseFloat(raw);
+                else options[o.name] = raw;
+              }
+              // All required args present — fire interaction.
+              await interactionsApi.send({
+                type: "command",
+                command_id: cmd.id,
+                command_name: cmd.name,
+                application_id: cmd.application_id,
+                channel_id: channelId ?? null,
+                dm_id: dmId ?? null,
+                guild_id: serverId ?? null,
+                options,
+              });
+              setValue("");
+              if (typingTimer.current) clearTimeout(typingTimer.current);
+              isTyping.current = false;
+              emitTyping(false);
+              return;
+            }
+          } catch {
+            // Command lookup / dispatch failed — fall through to plain send.
+          }
+        }
+      }
+
+      let text = text0;
       const extraUrls: string[] = [];
 
       // Auto-bundle huge text into message.txt
@@ -386,7 +441,7 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
           onClose={() => setMention(null)}
         />
       )}
-      {value.startsWith("/") && !value.includes("\n") && (channelId || dmId) && !sending && (
+      {value.startsWith("/") && !value.includes("\n") && !value.includes(" ") && (channelId || dmId) && !sending && (
         <CommandPicker
           guildId={serverId}
           dmId={dmId}

@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, get_current_active_user
+from app.services.websocket_service import manager
 from app.models.user import User
 from app.models.application import (
     Application, Bot, OAuth2AuthorizationCode, OAuth2Token,
@@ -134,9 +135,16 @@ async def authorize_approve(
         dup = await db.execute(select(ServerMember).where(
             ServerMember.server_id == g.id, ServerMember.user_id == bot.user_id,
         ))
+        newly_added = False
         if not dup.scalar_one_or_none():
             db.add(ServerMember(server_id=g.id, user_id=bot.user_id, role="member"))
+            newly_added = True
         await db.flush()
+        # Notify any live bot connection that it now belongs to a new guild,
+        # so subsequent message_create / reaction events reach it.
+        if newly_added:
+            from app.routers.bot_gateway import add_bot_to_guild
+            await add_bot_to_guild(bot.user_id, g.id)
 
     # Bot-only installs without a redirect_uri don't need a code at all —
     # the bot was added straight to the guild above.

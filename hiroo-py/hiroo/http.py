@@ -75,3 +75,8 @@ class HTTPClient:
         return await self.request(
             "POST", f"/api/commands/applications/{application_id}/commands", json=body,
         )
+
+    # ── Guild helpers ──────────────────────────────────────────────────
+
+    async def get_guild_channels(self, guild_id: str) -> list[dict]:
+        return await self.request("GET", f"/api/servers/{guild_id}/channels")

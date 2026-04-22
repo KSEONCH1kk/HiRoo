@@ -116,13 +116,18 @@ class ConnectionManager:
         # Mirror the event to any bots in this guild via the bot gateway.
         try:
             import uuid as _uuid
+            import logging as _logging
             from app.routers.bot_gateway import dispatch_to_all_bots_in_guild
             evt = data.get("event")
             payload = data.get("data") or {}
             if evt:
+                _logging.getLogger("hiroo.ws").info(
+                    "broadcast→bots guild=%s evt=%s", server_id, evt,
+                )
                 await dispatch_to_all_bots_in_guild(_uuid.UUID(server_id), evt, payload)
         except Exception:
-            pass
+            import logging as _logging
+            _logging.getLogger("hiroo.ws").exception("dispatch_to_all_bots_in_guild failed")
 
     async def broadcast_to_users(self, user_ids: list[str], data: dict, exclude_user: str | None = None):
         tasks = []
@@ -134,6 +139,7 @@ class ConnectionManager:
             await asyncio.gather(*tasks, return_exceptions=True)
         # For DM broadcasts, dispatch to any bot that's a DM participant.
         try:
+            import logging as _logging
             from app.routers.bot_gateway import dispatch_to_bot
             from sqlalchemy import select as _select
             from app.database import AsyncSessionLocal
@@ -149,10 +155,16 @@ class ConnectionManager:
                             _User.is_bot.is_(True),
                         )
                     )
-                    for (bot_uid,) in rows.all():
+                    bot_uids = [row[0] for row in rows.all()]
+                if bot_uids:
+                    _logging.getLogger("hiroo.ws").info(
+                        "broadcast_to_users→bots evt=%s bots=%s", evt, bot_uids,
+                    )
+                    for bot_uid in bot_uids:
                         await dispatch_to_bot(bot_uid, evt, payload)
         except Exception:
-            pass
+            import logging as _logging
+            _logging.getLogger("hiroo.ws").exception("broadcast_to_users→bots failed")
 
     def is_online(self, user_id: str) -> bool:
         return user_id in self._connections and bool(self._connections[user_id])

@@ -120,9 +120,20 @@ class Bot:
 
     def event(self, fn: Callable) -> Callable:
         """Register an event handler. The function name becomes the event name.
-        Example: `async def on_message(msg): ...`"""
+        Example: `async def on_message(msg): ...` — fires on new messages."""
         name = fn.__name__.removeprefix("on_")
-        self._event_handlers.setdefault(name, []).append(fn)
+        # Discord-style shortcuts: on_message -> message_create, etc.
+        aliases = {
+            "message": "message_create",
+            "message_edit": "message_update",
+            "reaction": "reaction_add",
+            "member_join": "guild_member_add",
+            "member_leave": "guild_member_remove",
+            "voice_state": "voice_state_update",
+            "presence": "presence_update",
+        }
+        resolved = aliases.get(name, name)
+        self._event_handlers.setdefault(resolved, []).append(fn)
         return fn
 
     def slash_command(self, *, name: Optional[str] = None, description: str = "", guild_id: Optional[str] = None):

@@ -51,6 +51,14 @@ class VoiceConnection:
         await self._room.connect(self.livekit_url, self.livekit_token, rtc.RoomOptions(
             auto_subscribe=True, dynacast=True,
         ))
+        # Register our voice presence with the HiRoo backend so other users'
+        # clients show us in the voice channel's participant list.
+        try:
+            await self.bot.http.request(
+                "POST", "/api/voice/presence", json={"room": self.room_name},
+            )
+        except Exception as e:
+            log.warning("voice presence register failed: %s", e)
         log.info("connected to voice room %s", self.room_name)
 
     async def disconnect(self) -> None:
@@ -59,34 +67,91 @@ class VoiceConnection:
                 await self._room.disconnect()
             finally:
                 self._room = None
+        try:
+            await self.bot.http.request("DELETE", "/api/voice/presence")
+        except Exception:
+            pass
 
     async def play_audio_file(self, path: str) -> None:
         """Convenience: stream a local audio file. Requires ffmpeg + livekit."""
+        import os
+        import shutil
         try:
             from livekit import rtc
         except ImportError as e:
             raise HiRooError("livekit required") from e
         if self._room is None:
             raise HiRooError("not connected")
+
+        ffmpeg = shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
+        if not ffmpeg:
+            raise HiRooError(
+                "ffmpeg не найден в PATH. Установите его:\n"
+                "  • Windows: winget install Gyan.FFmpeg  (или choco install ffmpeg)\n"
+                "  • macOS:   brew install ffmpeg\n"
+                "  • Linux:   apt install ffmpeg"
+            )
+        if not os.path.exists(path):
+            raise HiRooError(f"Файл не найден: {path}")
         # Decode via ffmpeg to 48kHz mono PCM16 and publish as a LiveKit audio track.
+        # 10 ms frames at 48 kHz mono → 480 samples → 960 bytes of s16le.
         source = rtc.AudioSource(48000, 1)
         track = rtc.LocalAudioTrack.create_audio_track("bot-audio", source)
-        await self._room.local_participant.publish_track(track)
+
+        # Explicit source + publish options — without this the SFU can't match
+        # the track to `canPublishSources=["microphone"]` on the token, which
+        # manifests as "track publication timed out".
+        options = rtc.TrackPublishOptions()
+        try:
+            options.source = rtc.TrackSource.SOURCE_MICROPHONE
+        except AttributeError:
+            pass
+
+        try:
+            await asyncio.wait_for(
+                self._room.local_participant.publish_track(track, options),
+                timeout=15,
+            )
+        except asyncio.TimeoutError:
+            raise HiRooError(
+                "publish_track timed out — likely a WebRTC transport issue. "
+                "Check that UDP 50000-50100 to the LiveKit server is reachable "
+                "from the bot machine, or enable LiveKit's TCP fallback on 7881."
+            )
 
         proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            ffmpeg, "-hide_banner", "-loglevel", "error",
             "-i", path, "-f", "s16le", "-ar", "48000", "-ac", "1", "-",
             stdout=asyncio.subprocess.PIPE,
         )
         assert proc.stdout is not None
-        frame_ms = 10
-        bytes_per_frame = (48000 // (1000 // frame_ms)) * 2  # 960 samples * 2 bytes
+        samples_per_frame = 480            # 10 ms at 48 kHz mono
+        bytes_per_frame = samples_per_frame * 1 * 2  # mono, s16le → 2 bytes per sample
+
+        def _make_frame(pcm: bytes):
+            # livekit-python has two shapes across versions; try the modern
+            # constructor first, fall back to the older `.create` + memoryview.
+            try:
+                return rtc.AudioFrame(
+                    data=pcm,
+                    sample_rate=48000,
+                    num_channels=1,
+                    samples_per_channel=samples_per_frame,
+                )
+            except TypeError:
+                f = rtc.AudioFrame.create(48000, 1, samples_per_frame)
+                # Cast the int16-typed memoryview down to raw bytes for assignment.
+                try:
+                    mv = f.data.cast("B")  # "B" = unsigned char
+                except AttributeError:
+                    mv = memoryview(f.data)
+                mv[:] = pcm
+                return f
+
         try:
             while True:
                 chunk = await proc.stdout.readexactly(bytes_per_frame)
-                frame = rtc.AudioFrame.create(48000, 1, 480)
-                frame.data[:] = chunk
-                await source.capture_frame(frame)
+                await source.capture_frame(_make_frame(chunk))
         except asyncio.IncompleteReadError:
             pass
         finally:

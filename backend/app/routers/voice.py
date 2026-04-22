@@ -86,17 +86,23 @@ async def voice_token(
     can_publish = True
     can_publish_sources: list[str] = []
     if room.startswith("channel:"):
-        # We already computed perms above for channel rooms
-        has_speak = bool(perms & Permissions.SPEAK_VOICE)
-        has_video = bool(perms & Permissions.VIDEO)
-        has_screen = bool(perms & Permissions.SCREENSHARE)
-        can_publish = has_speak
-        if has_speak:
-            can_publish_sources.append("microphone")
-            if has_video: can_publish_sources.append("camera")
-            if has_screen:
-                can_publish_sources.append("screen_share")
-                can_publish_sources.append("screen_share_audio")
+        if getattr(current_user, "is_bot", False):
+            # Bots always get full publish rights — their app declares what it
+            # needs via its capability flags (supports_voice), not per-role.
+            can_publish = True
+            can_publish_sources = ["microphone", "camera", "screen_share", "screen_share_audio"]
+        else:
+            # We already computed perms above for channel rooms
+            has_speak = bool(perms & Permissions.SPEAK_VOICE)
+            has_video = bool(perms & Permissions.VIDEO)
+            has_screen = bool(perms & Permissions.SCREENSHARE)
+            can_publish = has_speak
+            if has_speak:
+                can_publish_sources.append("microphone")
+                if has_video: can_publish_sources.append("camera")
+                if has_screen:
+                    can_publish_sources.append("screen_share")
+                    can_publish_sources.append("screen_share_audio")
 
     # Build JWT directly — LiveKit accepts standard HS256 JWT with `video` claim
     import time
@@ -121,6 +127,120 @@ async def voice_token(
     }
     token = jwt.encode(payload, settings.LIVEKIT_API_SECRET, algorithm="HS256")
     return VoiceTokenResponse(url=settings.LIVEKIT_URL, token=token)
+
+
+class VoicePresenceBody(BaseModel):
+    room: str
+
+
+@router.post("/presence")
+async def voice_presence_join(
+    body: VoicePresenceBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Register the caller as present in `room` for the in-memory voice room
+    tracker, so every client subscribed to the server sees `voice_peer_joined`.
+
+    Used by the Python client library (and bots) after they connect to
+    LiveKit — the regular web client uses the WS `voice_join` event instead,
+    but bots don't have a WS /ws connection."""
+    room_id = body.room
+    if not room_id or not (room_id.startswith("channel:") or room_id.startswith("dm:")):
+        raise HTTPException(status_code=400, detail="Invalid room id")
+
+    # Authorize — reuse the same checks as /token.
+    if room_id.startswith("channel:"):
+        try:
+            channel_uuid = uuid.UUID(room_id.split(":", 1)[1])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Bad channel id")
+        ch_res = await db.execute(select(Channel).where(Channel.id == channel_uuid))
+        channel = ch_res.scalar_one_or_none()
+        if not channel or channel.type != "voice":
+            raise HTTPException(status_code=404, detail="Voice channel not found")
+        mem_res = await db.execute(
+            select(ServerMember).where(
+                ServerMember.server_id == channel.server_id,
+                ServerMember.user_id == current_user.id,
+            )
+        )
+        if not mem_res.scalar_one_or_none():
+            raise HTTPException(status_code=403, detail="Not a server member")
+        perms = await compute_permissions(channel.server_id, current_user.id, db, channel_id=channel.id)
+        if not (perms & Permissions.CONNECT_VOICE):
+            raise HTTPException(status_code=403, detail="No CONNECT_VOICE")
+    else:
+        try:
+            dm_uuid = uuid.UUID(room_id.split(":", 1)[1])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Bad DM id")
+        p_res = await db.execute(
+            select(DMParticipant).where(
+                DMParticipant.dm_id == dm_uuid,
+                DMParticipant.user_id == current_user.id,
+            )
+        )
+        if not p_res.scalar_one_or_none():
+            raise HTTPException(status_code=403, detail="Not a DM participant")
+        channel = None
+
+    existing, _new = manager.voice_join(str(current_user.id), room_id)
+
+    notify = {
+        "event": "voice_peer_joined",
+        "data": {
+            "room_id": room_id,
+            "user_id": str(current_user.id),
+            "username": current_user.username,
+        },
+    }
+    if room_id.startswith("channel:") and channel is not None:
+        await manager.broadcast_to_server(
+            str(channel.server_id), notify, exclude_user=str(current_user.id),
+        )
+    elif room_id.startswith("dm:"):
+        dm_uuid = uuid.UUID(room_id.split(":", 1)[1])
+        p_all = await db.execute(
+            select(DMParticipant.user_id).where(DMParticipant.dm_id == dm_uuid)
+        )
+        await manager.broadcast_to_users(
+            [str(uid) for (uid,) in p_all.all()], notify,
+            exclude_user=str(current_user.id),
+        )
+
+    return {"ok": True, "peers": existing}
+
+
+@router.delete("/presence")
+async def voice_presence_leave(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    room_id, remaining, _ended = manager.voice_leave(str(current_user.id))
+    if not room_id:
+        return {"ok": True}
+    notify = {
+        "event": "voice_peer_left",
+        "data": {"room_id": room_id, "user_id": str(current_user.id)},
+    }
+    if room_id.startswith("channel:"):
+        try:
+            channel_uuid = uuid.UUID(room_id.split(":", 1)[1])
+            ch_res = await db.execute(select(Channel).where(Channel.id == channel_uuid))
+            ch = ch_res.scalar_one_or_none()
+            if ch:
+                await manager.broadcast_to_server(str(ch.server_id), notify)
+        except Exception:
+            pass
+    elif room_id.startswith("dm:"):
+        try:
+            dm_uuid = uuid.UUID(room_id.split(":", 1)[1])
+            p_all = await db.execute(select(DMParticipant.user_id).where(DMParticipant.dm_id == dm_uuid))
+            await manager.broadcast_to_users([str(uid) for (uid,) in p_all.all()], notify)
+        except Exception:
+            pass
+    return {"ok": True}
 
 
 @router.post("/join", response_model=VoiceStateResponse)
