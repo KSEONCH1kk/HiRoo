@@ -206,8 +206,29 @@ export function useSocket() {
     const onChannelDelete = ({ server_id, channel_id }: { server_id: string; channel_id: string }) => {
       useServerStore.getState().removeChannel(server_id, channel_id);
     };
-    const onChannelReorder = ({ server_id, ordered_ids }: { server_id: string; ordered_ids: string[] }) => {
-      useServerStore.getState().reorderChannels(server_id, ordered_ids);
+    const onChannelReorder = (payload: any) => {
+      // Backend now sends { server_id, items: [{id, position, parent_id}] }.
+      // Fall back to legacy { ordered_ids } for older servers.
+      const sid = payload?.server_id;
+      if (!sid) return;
+      let items: { id: string; position: number; parent_id: string | null }[] = [];
+      if (Array.isArray(payload.items)) {
+        items = payload.items.map((i: any) => ({
+          id: String(i.id),
+          position: Number(i.position ?? 0),
+          parent_id: i.parent_id ?? null,
+        }));
+      } else if (Array.isArray(payload.ordered_ids)) {
+        items = payload.ordered_ids.map((id: string, idx: number) => ({
+          id, position: idx, parent_id: null,
+        }));
+      }
+      if (items.length) {
+        useServerStore.getState().reorderChannels(sid, items);
+      }
+      // Also invalidate the react-query channel cache so components using it
+      // (ChannelSidebar, ChannelsTab) re-fetch canonical state.
+      qc.invalidateQueries({ queryKey: ["channels", sid] });
     };
     const onChannelPermissionsUpdate = () => {
       qc.invalidateQueries({ queryKey: ["my-permissions"] });

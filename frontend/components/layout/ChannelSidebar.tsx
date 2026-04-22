@@ -27,9 +27,10 @@ interface Props {
   activeChannelId: string | null;
   onPickChannel: (id: string) => void;
   onOpenVoice: (id: string) => void;
+  onPickForum?: (id: string) => void;
 }
 
-export function ChannelSidebar({ server, channels, activeChannelId, onPickChannel, onOpenVoice }: Props) {
+export function ChannelSidebar({ server, channels, activeChannelId, onPickChannel, onOpenVoice, onPickForum }: Props) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [menuOpen, setMenuOpen] = useState(false);
   const [createChannel, setCreateChannel] = useState<"text" | "voice" | null>(null);
@@ -37,7 +38,7 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
   const [copied, setCopied] = useState(false);
   const router = useRouter();
   const qc = useQueryClient();
-  const { setServers, servers } = useServerStore();
+  const { setServers, servers, setChannels } = useServerStore();
   const { has } = useServerPermissions(server.id);
   const voicePresence = useVoicePresenceStore((s) => s.byRoom);
   const { membersById } = useServerRoles(server.id);
@@ -112,9 +113,27 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
   const [dropTarget, setDropTarget] = useState<{ id: string | null; pos: "before" | "after" | "into" } | null>(null);
 
   const reorder = useMutation({
-    mutationFn: (items: { id: string; position: number; parent_id: string | null }[]) =>
-      channelsApi.reorder(server.id, items),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["channels", server.id] }),
+    mutationFn: (items: { id: string; position: number; parent_id: string | null }[]) => {
+      // Optimistic local update — the sender sees the new order immediately
+      // even before the server + WS broadcast round-trip completes.
+      useServerStore.getState().reorderChannels(server.id, items);
+      return channelsApi.reorder(server.id, items);
+    },
+    onSuccess: async () => {
+      qc.invalidateQueries({ queryKey: ["channels", server.id] });
+      // Re-pull canonical order (positions may have been re-numbered).
+      try {
+        const fresh = await channelsApi.list(server.id);
+        setChannels(server.id, fresh);
+      } catch {}
+    },
+    onError: async () => {
+      // Roll back to server state if the reorder was rejected.
+      try {
+        const fresh = await channelsApi.list(server.id);
+        setChannels(server.id, fresh);
+      } catch {}
+    },
   });
 
   function handleDrop(sourceId: string, targetId: string | null, pos: "before" | "after" | "into") {
@@ -346,6 +365,7 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
             canManage={has("MANAGE_CHANNELS")}
             onPickChannel={onPickChannel}
             onOpenVoice={onOpenVoice}
+            onPickForum={onPickForum}
             onCtx={(x, y, ch) => ch.type === "category"
               ? setCategoryCtx({ x, y, channel: ch })
               : setCtx({ x, y, channel: ch })
@@ -592,6 +612,7 @@ interface SidebarItemProps {
   canManage: boolean;
   onPickChannel: (id: string) => void;
   onOpenVoice: (id: string) => void;
+  onPickForum?: (id: string) => void;
   onCtx: (x: number, y: number, ch: Channel) => void;
   onVoiceUserCtx: (x: number, y: number, uid: string, m: any, cid: string) => void;
   onCreateInCategory: (type: "text" | "voice" | "forum", parentId: string) => void;
@@ -723,7 +744,10 @@ function SidebarItem(props: SidebarItemProps) {
       <div
         onClick={() => {
           if (isVoice) props.onOpenVoice(ch.id);
-          else if (isForum) props.router.push(`/servers/${props.serverId}/forum/${ch.id}`);
+          else if (isForum) {
+            if (props.onPickForum) props.onPickForum(ch.id);
+            else props.router.push(`/servers/${props.serverId}/forum/${ch.id}`);
+          }
           else props.onPickChannel(ch.id);
         }}
         onContextMenu={(e) => { e.preventDefault(); props.onCtx(e.clientX, e.clientY, ch); }}

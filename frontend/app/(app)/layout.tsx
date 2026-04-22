@@ -162,6 +162,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         channels={activeChannels}
         activeChannelId={activeChannelId}
         onPickChannel={(id) => { setActiveChannel(id); router.push(`/servers/${activeServerId}/channels/${id}`); }}
+        onPickForum={(id) => { setActiveChannel(id); router.push(`/servers/${activeServerId}/forum/${id}`); }}
         onOpenVoice={handleOpenVoice}
       />
     );

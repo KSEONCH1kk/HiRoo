@@ -196,6 +196,20 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_forum_posts_channel_id ON forum_posts (channel_id)",
     "CREATE INDEX IF NOT EXISTS ix_forum_posts_last_activity ON forum_posts (last_activity_at DESC)",
     "CREATE INDEX IF NOT EXISTS ix_forum_posts_is_rules ON forum_posts (is_rules)",
+    # Forum replies — thread-style messages inside a forum post
+    """
+    CREATE TABLE IF NOT EXISTS forum_replies (
+        id UUID PRIMARY KEY,
+        post_id UUID NOT NULL REFERENCES forum_posts(id) ON DELETE CASCADE,
+        author_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        content TEXT NOT NULL DEFAULT '',
+        edited_at TIMESTAMP WITH TIME ZONE,
+        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_forum_replies_post_id ON forum_replies (post_id)",
+    "CREATE INDEX IF NOT EXISTS ix_forum_replies_created_at ON forum_replies (created_at)",
 ]
 
 
@@ -281,6 +295,7 @@ app.include_router(soundboard.me_router)
 app.include_router(templates_router.router)
 app.include_router(templates_router.public_router)
 app.include_router(forum_router.router)
+app.include_router(forum_router.replies_router)
 app.include_router(users.router)
 app.include_router(users.tag_icons_router)
 app.include_router(servers.router)

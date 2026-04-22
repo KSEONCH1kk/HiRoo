@@ -59,3 +59,30 @@ class ForumPost(Base):
     )
 
     author = relationship("User", foreign_keys=[author_id])
+
+
+class ForumReply(Base):
+    """Message inside a forum post (thread-style).
+
+    Separate from the main `messages` table so forum threads don't pollute
+    the channel-level message stream used by regular text channels.
+    """
+
+    __tablename__ = "forum_replies"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("forum_posts.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True,
+    )
+
+    author = relationship("User", foreign_keys=[author_id])

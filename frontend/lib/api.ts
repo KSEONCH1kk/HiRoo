@@ -328,7 +328,25 @@ export const forumApi = {
     api.put<ForumPost>(`/api/channels/${channelId}/forum/rules`, data).then((r) => r.data),
   deleteRules: (channelId: string) =>
     api.delete(`/api/channels/${channelId}/forum/rules`),
+  listReplies: (postId: string) =>
+    api.get<ForumReply[]>(`/api/forum-posts/${postId}/replies`).then((r) => r.data),
+  createReply: (postId: string, content: string) =>
+    api.post<ForumReply>(`/api/forum-posts/${postId}/replies`, { content }).then((r) => r.data),
+  updateReply: (postId: string, replyId: string, content: string) =>
+    api.patch<ForumReply>(`/api/forum-posts/${postId}/replies/${replyId}`, { content }).then((r) => r.data),
+  deleteReply: (postId: string, replyId: string) =>
+    api.delete(`/api/forum-posts/${postId}/replies/${replyId}`),
 };
+
+export interface ForumReply {
+  id: string;
+  post_id: string;
+  author: UserPublic | null;
+  content: string;
+  edited_at: string | null;
+  is_deleted: boolean;
+  created_at: string;
+}
 
 export interface ChannelRoleOverride {
   role_id: string;

@@ -15,7 +15,7 @@ interface ServerState {
   addChannel: (ch: Channel) => void;
   updateChannel: (ch: Channel) => void;
   removeChannel: (serverId: string, channelId: string) => void;
-  reorderChannels: (serverId: string, orderedIds: string[]) => void;
+  reorderChannels: (serverId: string, items: { id: string; position: number; parent_id: string | null }[]) => void;
   setMembers: (serverId: string, members: ServerMember[]) => void;
   setActiveServer: (id: string | null) => void;
   setActiveChannel: (id: string | null) => void;
@@ -53,16 +53,17 @@ export const useServerStore = create<ServerState>((set) => ({
         [serverId]: (st.channels[serverId] ?? []).filter((c) => c.id !== channelId),
       },
     })),
-  reorderChannels: (serverId, orderedIds) =>
+  reorderChannels: (serverId, items) =>
     set((st) => {
       const list = st.channels[serverId] ?? [];
-      const byId = new Map(list.map((c) => [c.id, c]));
-      const next: Channel[] = [];
-      orderedIds.forEach((id, idx) => {
-        const c = byId.get(id);
-        if (c) { next.push({ ...c, position: idx }); byId.delete(id); }
+      const patchById = new Map(items.map((it) => [it.id, it]));
+      const next = list.map((c) => {
+        const p = patchById.get(c.id);
+        if (!p) return c;
+        return { ...c, position: p.position, parent_id: p.parent_id };
       });
-      for (const c of byId.values()) next.push(c);
+      // Keep stable sort by position for immediate visual reorder.
+      next.sort((a, b) => a.position - b.position);
       return { channels: { ...st.channels, [serverId]: next } };
     }),
   setMembers: (serverId, members) =>

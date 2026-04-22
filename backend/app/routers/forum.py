@@ -20,7 +20,7 @@ from app.core.deps import (
 )
 from app.core.search import escape_like
 from app.models.channel import Channel
-from app.models.forum import ForumPost, ForumTag
+from app.models.forum import ForumPost, ForumTag, ForumReply
 from app.models.role import Permissions
 from app.models.server import ServerMember
 from app.models.user import User
@@ -28,6 +28,7 @@ from app.schemas.user import UserPublic
 from app.services.websocket_service import manager
 
 router = APIRouter(prefix="/api/channels/{channel_id}/forum", tags=["forum"])
+replies_router = APIRouter(prefix="/api/forum-posts/{post_id}/replies", tags=["forum"])
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────
@@ -480,3 +481,154 @@ async def delete_rules(
     rules = r.scalar_one_or_none()
     if rules:
         await db.delete(rules)
+
+
+# ─── Replies (thread messages inside a forum post) ─────────────────────
+
+
+class ReplyOut(BaseModel):
+    model_config = {"from_attributes": True}
+    id: uuid.UUID
+    post_id: uuid.UUID
+    author: UserPublic | None = None
+    content: str
+    edited_at: datetime | None = None
+    is_deleted: bool = False
+    created_at: datetime
+
+
+class ReplyCreate(BaseModel):
+    content: str = Field(..., min_length=1, max_length=4000)
+
+
+class ReplyUpdate(BaseModel):
+    content: str = Field(..., min_length=1, max_length=4000)
+
+
+async def _get_post_with_channel(
+    db: AsyncSession, post_id: uuid.UUID,
+) -> tuple[ForumPost, Channel]:
+    pr = await db.execute(select(ForumPost).where(ForumPost.id == post_id))
+    post = pr.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Пост не найден")
+    cr = await db.execute(select(Channel).where(Channel.id == post.channel_id))
+    ch = cr.scalar_one_or_none()
+    if not ch:
+        raise HTTPException(status_code=404, detail="Канал не найден")
+    return post, ch
+
+
+def _reply_to_out(r: ForumReply) -> ReplyOut:
+    out = ReplyOut.model_validate(r)
+    if r.author:
+        out.author = UserPublic.model_validate(r.author)
+    return out
+
+
+@replies_router.get("", response_model=list[ReplyOut])
+@replies_router.get("/", response_model=list[ReplyOut], include_in_schema=False)
+async def list_replies(
+    post_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    post, ch = await _get_post_with_channel(db, post_id)
+    await _require_member(db, ch.server_id, current_user)
+    await _require_channel_perm(db, ch, current_user, Permissions.READ_MESSAGES)
+    rs = await db.execute(
+        select(ForumReply)
+        .options(selectinload(ForumReply.author))
+        .where(ForumReply.post_id == post_id)
+        .order_by(ForumReply.created_at.asc())
+    )
+    return [_reply_to_out(r) for r in rs.scalars()]
+
+
+@replies_router.post("", response_model=ReplyOut, status_code=201)
+@replies_router.post("/", response_model=ReplyOut, status_code=201, include_in_schema=False)
+async def create_reply(
+    post_id: uuid.UUID,
+    body: ReplyCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    post, ch = await _get_post_with_channel(db, post_id)
+    await _require_member(db, ch.server_id, current_user)
+    await _require_channel_perm(db, ch, current_user, Permissions.SEND_MESSAGES)
+    if post.is_locked:
+        perms = await compute_permissions(ch.server_id, current_user.id, db, channel_id=ch.id)
+        if not ((perms & Permissions.MANAGE_MESSAGES) or (perms & Permissions.ADMIN)):
+            raise HTTPException(status_code=403, detail="Публикация закрыта для ответов")
+
+    reply = ForumReply(
+        post_id=post_id, author_id=current_user.id,
+        content=body.content.strip()[:4000],
+    )
+    db.add(reply)
+    # Bump thread liveness — used by the "recent" sort on the forum list.
+    post.reply_count = (post.reply_count or 0) + 1
+    post.last_activity_at = datetime.now(timezone.utc)
+    await db.flush()
+    ar = await db.execute(
+        select(ForumReply)
+        .options(selectinload(ForumReply.author))
+        .where(ForumReply.id == reply.id)
+    )
+    reply = ar.scalar_one()
+    out = _reply_to_out(reply)
+
+    # Fan-out so other viewers see the new reply in real time.
+    await manager.broadcast_to_server(str(ch.server_id), {
+        "event": "forum_reply_create",
+        "data": {**out.model_dump(mode="json"), "channel_id": str(ch.id)},
+    })
+    return out
+
+
+@replies_router.patch("/{reply_id}", response_model=ReplyOut)
+async def update_reply(
+    post_id: uuid.UUID,
+    reply_id: uuid.UUID,
+    body: ReplyUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    post, ch = await _get_post_with_channel(db, post_id)
+    r = await db.execute(
+        select(ForumReply)
+        .options(selectinload(ForumReply.author))
+        .where(ForumReply.id == reply_id, ForumReply.post_id == post_id)
+    )
+    reply = r.scalar_one_or_none()
+    if not reply:
+        raise HTTPException(status_code=404, detail="Ответ не найден")
+    if reply.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Нельзя редактировать чужой ответ")
+    reply.content = body.content.strip()[:4000]
+    reply.edited_at = datetime.now(timezone.utc)
+    await db.flush()
+    return _reply_to_out(reply)
+
+
+@replies_router.delete("/{reply_id}", status_code=204)
+async def delete_reply(
+    post_id: uuid.UUID,
+    reply_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    post, ch = await _get_post_with_channel(db, post_id)
+    r = await db.execute(
+        select(ForumReply).where(ForumReply.id == reply_id, ForumReply.post_id == post_id)
+    )
+    reply = r.scalar_one_or_none()
+    if not reply:
+        return
+    perms = await compute_permissions(ch.server_id, current_user.id, db, channel_id=ch.id)
+    is_author = reply.author_id == current_user.id
+    can_manage = bool(perms & Permissions.MANAGE_MESSAGES) or bool(perms & Permissions.ADMIN)
+    if not (is_author or can_manage):
+        raise HTTPException(status_code=403, detail="Нельзя удалить чужой ответ")
+    await db.delete(reply)
+    post.reply_count = max(0, (post.reply_count or 1) - 1)

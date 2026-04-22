@@ -19,7 +19,7 @@ from app.models.block import UserBlock
 from app.models.session import Session as UserSession
 from app.models.soundboard import SoundboardSound
 from app.models.template import ServerTemplate
-from app.models.forum import ForumPost, ForumTag
+from app.models.forum import ForumPost, ForumTag, ForumReply
 
 __all__ = [
     "User", "Server", "ServerMember", "Channel",
@@ -36,5 +36,5 @@ __all__ = [
     "UserSession",
     "SoundboardSound",
     "ServerTemplate",
-    "ForumPost", "ForumTag",
+    "ForumPost", "ForumTag", "ForumReply",
 ]
