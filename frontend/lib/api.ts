@@ -17,15 +17,34 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config;
 });
 
-// Auto-refresh on 401
+// Auto-refresh on 401 + resilient retry on 5xx (backend rebuild / nginx 502/503/504)
 let refreshing = false;
 let refreshQueue: Array<(token: string | null) => void> = [];
+
+async function _sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
 api.interceptors.response.use(
   (r) => r,
   async (err: AxiosError) => {
-    const orig = err.config as InternalAxiosRequestConfig & { _retry?: boolean };
-    if (err.response?.status === 401 && !orig._retry && !orig.url?.includes("/auth/")) {
+    const orig = err.config as InternalAxiosRequestConfig & {
+      _retry?: boolean; _5xxAttempts?: number;
+    };
+    const status = err.response?.status ?? 0;
+
+    // Transient infrastructure errors — backend restarting, nginx can't reach
+    // upstream, gateway timeout. Retry up to 5 times with increasing backoff
+    // so the user doesn't get kicked to /login just because we redeployed.
+    const isTransient = status === 502 || status === 503 || status === 504 || !err.response;
+    if (isTransient && orig) {
+      const attempts = (orig._5xxAttempts ?? 0) + 1;
+      if (attempts <= 5) {
+        orig._5xxAttempts = attempts;
+        await _sleep(Math.min(8000, 600 * attempts));
+        return api(orig);
+      }
+    }
+
+    if (status === 401 && !orig._retry && !orig.url?.includes("/auth/")) {
       orig._retry = true;
       if (refreshing) {
         return new Promise((resolve, reject) => {
@@ -47,15 +66,22 @@ api.interceptors.response.use(
         refreshQueue = [];
         orig.headers.Authorization = `Bearer ${data.access_token}`;
         return api(orig);
-      } catch {
-        tokenStore.clear();
+      } catch (refreshErr: any) {
+        // Only clear auth on genuine 401/403 from /refresh. Network or 5xx
+        // errors mean backend is unreachable, not that the user is logged out.
+        const rStatus = refreshErr?.response?.status ?? 0;
+        const isAuthFailure = rStatus === 401 || rStatus === 403;
         refreshQueue.forEach((cb) => cb(null));
         refreshQueue = [];
-        if (typeof window !== "undefined") {
-          try { localStorage.removeItem("hiroo-auth"); } catch {}
-          const next = window.location.pathname + window.location.search;
-          window.location.href = `/login?next=${encodeURIComponent(next)}`;
+        if (isAuthFailure) {
+          tokenStore.clear();
+          if (typeof window !== "undefined") {
+            try { localStorage.removeItem("hiroo-auth"); } catch {}
+            const next = window.location.pathname + window.location.search;
+            window.location.href = `/login?next=${encodeURIComponent(next)}`;
+          }
         }
+        // else: leave auth state alone — UI will show errors but session survives.
       } finally {
         refreshing = false;
       }
@@ -93,8 +119,9 @@ export const usersApi = {
   block: (id: string) => api.post(`/api/users/${id}/block`),
   unblock: (id: string) => api.delete(`/api/users/${id}/block`),
   listBlocks: () => api.get<UserPublic[]>(`/api/users/me/blocks`).then((r) => r.data),
-  updateMe: (data: { display_name?: string; custom_status?: string }) =>
+  updateMe: (data: { display_name?: string; custom_status?: string; active_tag_server_id?: string | null }) =>
     api.patch<User>("/api/users/me", data).then((r) => r.data),
+  tagIcons: () => api.get<{ icons: string[] }>("/api/meta/tag-icons").then((r) => r.data.icons),
   updatePreferences: (body: Partial<User>) =>
     api.patch<User>(`/api/users/me/preferences`, body).then((r) => r.data),
   listDevices: () => api.get<{

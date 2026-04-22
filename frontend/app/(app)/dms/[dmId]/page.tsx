@@ -7,6 +7,7 @@ import { DMComposer } from "@/components/dm/DMComposer";
 import { GroupDMSettings } from "@/components/dm/GroupDMSettings";
 import { MessageSearchModal } from "@/components/chat/MessageSearchModal";
 import { Avatar } from "@/components/ui/Avatar";
+import { ClanTag } from "@/components/ui/ClanTag";
 import { DMMemberPill } from "@/components/dm/DMMemberPill";
 import { DMMembersPanel } from "@/components/dm/DMMembersPanel";
 import { useAuthStore } from "@/store/authStore";
@@ -99,7 +100,10 @@ export default function DMPage({ params }: { params: { dmId: string } }) {
           <Avatar name="?" size={28} shape="circle" />
         )}
         <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+            {!isGroup && others[0]?.tag && <ClanTag tag={others[0].tag} />}
+          </div>
           {dm?.is_group && (
             <span style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono" }}>
               {dm.participants.length} участн.

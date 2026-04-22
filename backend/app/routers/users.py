@@ -15,15 +15,32 @@ from app.services.badges import compute_badges
 from pydantic import BaseModel, Field
 
 
-def _with_badges(user: User, badges: list[str]) -> dict:
+def _with_badges(user: User, badges: list[str], tag=None) -> dict:
     """Turn an ORM user into a dict enriched with a `badges` list so Pydantic
     can validate it against UserPublic/UserResponse without us mutating the
     SQLAlchemy object."""
     data = {c.name: getattr(user, c.name) for c in user.__table__.columns}
     data["badges"] = badges
+    if tag is not None:
+        data["tag"] = tag.model_dump(mode="json")
     return data
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+
+# ── Tag icons pool (used by /settings/server UI) ─────────────────────
+# Exposed under /api/users so it's behind the normal auth gate — the pool
+# is small, static, and never changes at runtime, but we still require
+# auth so randoms can't scrape it.
+from fastapi import APIRouter as _APIRouterAlias  # noqa
+from app.services.tag_icons import TAG_ICONS  # noqa
+
+tag_icons_router = APIRouter(prefix="/api/meta", tags=["meta"])
+
+
+@tag_icons_router.get("/tag-icons")
+async def get_tag_icons(_: User = Depends(get_current_active_user)):
+    return {"icons": TAG_ICONS}
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
@@ -33,8 +50,10 @@ async def get_me(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
+    from app.services.clan_tag import get_tag_for_user
     badges = await compute_badges(current_user, db)
-    return _with_badges(current_user, badges)
+    tag = await get_tag_for_user(db, current_user)
+    return _with_badges(current_user, badges, tag)
 
 
 @router.patch("/me", response_model=UserResponse)
@@ -43,13 +62,40 @@ async def update_me(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
+    from app.models.server import Server, ServerMember
     if body.display_name is not None:
         current_user.display_name = body.display_name
     if body.custom_status is not None:
         current_user.custom_status = body.custom_status
+    # Tag source selection. `active_tag_server_id` set from FastAPI as UUID
+    # or None. We do NOT distinguish "field absent" vs "field = null" since
+    # Pydantic collapses both — if the frontend wants to clear, send null.
+    if "active_tag_server_id" in body.model_fields_set:
+        if body.active_tag_server_id is None:
+            current_user.active_tag_server_id = None
+        else:
+            # Must be member of that server, and server must have a tag.
+            sr = await db.execute(
+                select(Server).where(Server.id == body.active_tag_server_id)
+            )
+            srv = sr.scalar_one_or_none()
+            if not srv or not srv.tag_label or not srv.tag_icon:
+                raise HTTPException(status_code=400, detail="У сервера нет тэга")
+            mr = await db.execute(
+                select(ServerMember).where(
+                    ServerMember.server_id == srv.id,
+                    ServerMember.user_id == current_user.id,
+                )
+            )
+            if not mr.scalar_one_or_none():
+                raise HTTPException(status_code=403, detail="Вы не участник этого сервера")
+            current_user.active_tag_server_id = srv.id
     await db.flush()
     await db.refresh(current_user)
-    return current_user
+    from app.services.clan_tag import get_tag_for_user
+    tag = await get_tag_for_user(db, current_user)
+    badges = await compute_badges(current_user, db)
+    return _with_badges(current_user, badges, tag)
 
 
 @router.patch("/me/status", response_model=UserResponse)

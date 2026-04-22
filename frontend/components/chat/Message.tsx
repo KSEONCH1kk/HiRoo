@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { Avatar } from "@/components/ui/Avatar";
+import { ClanTag } from "@/components/ui/ClanTag";
 import { formatMessageTime } from "@/lib/utils";
 import { MessageContent } from "./MessageContent";
 import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
@@ -204,6 +205,7 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
               >
                 {isWebhook ? webhookDisplayName : (m.author?.display_name ?? m.author?.username ?? "Неизвестный")}
               </span>
+              {!isWebhook && <ClanTag tag={m.author?.tag} />}
               {isWebhook && (
                 <span style={{ fontSize: 9.5, padding: "1px 5px", borderRadius: 3, background: "var(--accent)", color: "#fff", fontWeight: 700, fontFamily: "Geist Mono", letterSpacing: 0.5 }}>
                   ВЕБХУК

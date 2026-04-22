@@ -118,6 +118,12 @@ MIGRATIONS = [
     """,
     "CREATE INDEX IF NOT EXISTS ix_sessions_user_id ON sessions (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_sessions_refresh_token_hash ON sessions (refresh_token_hash)",
+    # Server clan tags: short label + icon key shown next to usernames for
+    # members who picked that server as their active tag source.
+    "ALTER TABLE servers ADD COLUMN IF NOT EXISTS tag_label VARCHAR(8)",
+    "ALTER TABLE servers ADD COLUMN IF NOT EXISTS tag_icon VARCHAR(32)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS active_tag_server_id UUID REFERENCES servers(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_users_active_tag_server_id ON users (active_tag_server_id)",
 ]
 
 
@@ -199,6 +205,7 @@ app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads"
 app.include_router(auth.router)
 app.include_router(qr_auth.router)
 app.include_router(users.router)
+app.include_router(users.tag_icons_router)
 app.include_router(servers.router)
 app.include_router(channels.router)
 app.include_router(messages.router)

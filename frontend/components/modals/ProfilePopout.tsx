@@ -6,6 +6,7 @@ import { useUIStore } from "@/store/uiStore";
 import { useAuthStore } from "@/store/authStore";
 import { dmsApi, usersApi } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
+import { ClanTag } from "@/components/ui/ClanTag";
 import { Button } from "@/components/ui/Button";
 import { getStatusColor } from "@/lib/utils";
 import { Badges } from "@/components/profile/Badges";
@@ -117,6 +118,7 @@ export function ProfilePopout() {
                 style={{ fontSize: 14, color: "#6fa8ff" }}
               />
             )}
+            <ClanTag tag={p.tag} size="md" />
           </div>
           <div style={{ fontSize: 13, color: "var(--text-2)", fontFamily: "Geist Mono", marginBottom: 6 }}>@{p.username}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>

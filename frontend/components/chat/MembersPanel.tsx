@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/Avatar";
+import { ClanTag } from "@/components/ui/ClanTag";
 import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
 import { RoleAssignModal } from "@/components/modals/RoleAssignModal";
 import { useUIStore } from "@/store/uiStore";
@@ -120,9 +121,10 @@ export function MembersPanelInner({ serverId }: Props) {
           <div style={{
             fontSize: 13, fontWeight: 600,
             color: m.user.status === "offline" ? "var(--text-3)" : (color ?? "var(--text-0)"),
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            overflow: "hidden", display: "flex", alignItems: "center", gap: 6, minWidth: 0,
           }}>
-            {displayName}
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName}</span>
+            <ClanTag tag={m.user.tag} />
           </div>
           {m.user.custom_status && (
             <div style={{ fontSize: 11, color: "var(--text-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

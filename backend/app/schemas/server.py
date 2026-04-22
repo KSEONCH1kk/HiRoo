@@ -13,6 +13,9 @@ class ServerUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
     is_discoverable: bool | None = None
+    # Passing "" clears the tag; omitting leaves it unchanged.
+    tag_label: str | None = Field(None, max_length=8)
+    tag_icon: str | None = Field(None, max_length=32)
 
 
 class ServerMemberUpdate(BaseModel):
@@ -42,6 +45,8 @@ class ServerResponse(BaseModel):
     owner_id: uuid.UUID
     invite_code: str
     is_discoverable: bool = False
+    tag_label: str | None = None
+    tag_icon: str | None = None
     created_at: datetime
     member_count: int = 0
 

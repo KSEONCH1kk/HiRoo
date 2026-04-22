@@ -4,6 +4,7 @@ import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
 import { dmsApi } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
+import { ClanTag } from "@/components/ui/ClanTag";
 import { MessageContent } from "@/components/chat/MessageContent";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { FailedMessageList } from "@/components/chat/FailedMessageList";
@@ -287,6 +288,7 @@ function DMMessageItem({ msg, grouped, isMe, editing, onStartEdit, onCancelEdit,
         {!grouped && (
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-0)" }}>{msg.author?.display_name ?? msg.author?.username}</span>
+            <ClanTag tag={msg.author?.tag} />
             <span style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono" }}>{formatMessageTime(msg.created_at)}</span>
             {msg.edited_at && <span style={{ fontSize: 10, color: "var(--text-3)" }}>(ред.)</span>}
           </div>

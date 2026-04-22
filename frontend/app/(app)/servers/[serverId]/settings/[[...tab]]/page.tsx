@@ -9,6 +9,7 @@ import { RolesTab } from "@/components/server-settings/RolesTab";
 import { ChannelsTab } from "@/components/server-settings/ChannelsTab";
 import { MembersTab } from "@/components/server-settings/MembersTab";
 import { InvitesTab } from "@/components/server-settings/InvitesTab";
+import { TagTab } from "@/components/server-settings/TagTab";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PermissionKey } from "@/lib/permissions";
 import type { Server } from "@/types";
@@ -19,6 +20,7 @@ const TABS: { id: string; label: string; icon: string; perm?: PermissionKey }[] 
   { id: "channels", label: "Каналы", icon: "fa-hashtag", perm: "MANAGE_CHANNELS" },
   { id: "members", label: "Участники", icon: "fa-users", perm: "KICK_MEMBERS" },
   { id: "invites", label: "Приглашения", icon: "fa-link", perm: "CREATE_INVITE" },
+  { id: "tag", label: "Тэг сервера", icon: "fa-tag", perm: "MANAGE_SERVER" },
 ];
 
 export default function ServerSettingsPage({ params }: { params: { serverId: string; tab?: string[] } }) {
@@ -125,6 +127,7 @@ export default function ServerSettingsPage({ params }: { params: { serverId: str
               {active === "channels" && <ChannelsTab serverId={serverId} />}
               {active === "members" && <MembersTab serverId={serverId} />}
               {active === "invites" && <InvitesTab server={server} />}
+              {active === "tag" && <TagTab server={server} />}
             </>
           )}
         </div>

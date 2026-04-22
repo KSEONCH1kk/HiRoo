@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Avatar } from "@/components/ui/Avatar";
+import { ClanTag } from "@/components/ui/ClanTag";
 import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
 import { dmsApi } from "@/lib/api";
 import { useUIStore } from "@/store/uiStore";
@@ -87,9 +88,12 @@ export function DMMemberPill({ user, dmId, isOwner, variant = "pill" }: Props) {
         >
           <Avatar name={user.username} size={28} shape="circle" status={user.status} avatarUrl={user.avatar_url} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, color: "var(--text-0)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {user.display_name ?? user.username}
-              {isSelf && <span style={{ color: "var(--text-3)", fontWeight: 400 }}> · вы</span>}
+            <div style={{ fontSize: 13.5, color: "var(--text-0)", fontWeight: 500, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {user.display_name ?? user.username}
+                {isSelf && <span style={{ color: "var(--text-3)", fontWeight: 400 }}> · вы</span>}
+              </span>
+              <ClanTag tag={user.tag} />
             </div>
             {user.custom_status && (
               <div style={{ fontSize: 11.5, color: "var(--text-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

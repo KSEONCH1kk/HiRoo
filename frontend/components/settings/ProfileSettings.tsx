@@ -9,6 +9,7 @@ import { useAuthStore } from "@/store/authStore";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { ImageCropModal } from "@/components/modals/ImageCropModal";
+import { TagPicker } from "@/components/settings/TagPicker";
 
 const schema = z.object({
   display_name: z.string().max(50).optional(),
@@ -122,6 +123,8 @@ export function ProfileSettings() {
           {update.isPending ? "…" : "Сохранить"}
         </Button>
       </div>
+
+      <TagPicker />
 
       {pendingCrop && (
         <ImageCropModal

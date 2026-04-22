@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, DateTime, func
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
@@ -37,6 +37,16 @@ class User(Base):
     # "all" (every message) | "mentions" (only @user) | "none"
     notif_level: Mapped[str] = mapped_column(String(16), default="mentions", nullable=False)
 
+    # Which server's clan tag to display next to this user's name (nullable
+    # = no tag). Server is expected to have tag_label/tag_icon set and the
+    # user must still be a member — enforced at write time, and silently
+    # skipped at read time if violated.
+    active_tag_server_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("servers.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -51,3 +61,8 @@ class User(Base):
     )
     notifications = relationship("Notification", foreign_keys="Notification.user_id", back_populates="user", lazy="dynamic")
     voice_state = relationship("VoiceState", back_populates="user", uselist=False)
+    # lazy="selectin" so every User fetch auto-loads the tag-source server
+    # in the same round trip — saves updating 27 selectinload() call sites.
+    active_tag_server = relationship(
+        "Server", foreign_keys=[active_tag_server_id], lazy="selectin",
+    )

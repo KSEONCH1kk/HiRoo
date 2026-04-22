@@ -17,6 +17,11 @@ class Server(Base):
     invite_code: Mapped[str] = mapped_column(String(8), unique=True, nullable=False, index=True)
     invite_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_discoverable: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # Short clan/server tag — max 8 chars label + icon key from a fixed pool
+    # (see app/services/tag_icons.py). Displayed next to usernames for
+    # members who picked this server as their active tag source.
+    tag_label: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    tag_icon: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     owner = relationship("User", foreign_keys=[owner_id])

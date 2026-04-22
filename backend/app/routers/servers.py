@@ -182,6 +182,18 @@ async def update_server(
         server.description = body.description
     if body.is_discoverable is not None:
         server.is_discoverable = body.is_discoverable
+    if body.tag_label is not None:
+        lbl = body.tag_label.strip()
+        server.tag_label = lbl if lbl else None
+    if body.tag_icon is not None:
+        from app.services.tag_icons import is_valid_tag_icon
+        icon = body.tag_icon.strip()
+        if not icon:
+            server.tag_icon = None
+        elif is_valid_tag_icon(icon):
+            server.tag_icon = icon
+        else:
+            raise HTTPException(status_code=400, detail="Недопустимая иконка тэга")
     await db.flush()
     count = await _member_count(db, server.id)
     return _server_response(server, count)
@@ -212,6 +224,9 @@ async def leave_server(
     if member.role == "owner":
         raise HTTPException(status_code=400, detail="Owner must transfer ownership before leaving")
     await db.delete(member)
+    # Clear the clan tag if they picked this server as their tag source.
+    if current_user.active_tag_server_id == server_id:
+        current_user.active_tag_server_id = None
     await manager.broadcast_to_server(str(server_id), {
         "event": "member_leave",
         "data": {"server_id": str(server_id), "user_id": str(current_user.id)},
@@ -288,6 +303,11 @@ async def kick_member(
     if target.role == "owner":
         raise HTTPException(status_code=400, detail="Нельзя исключить владельца сервера")
     await db.delete(target)
+    # Clear the kicked user's clan tag if they had picked this server.
+    ur = await db.execute(select(User).where(User.id == user_id))
+    u = ur.scalar_one_or_none()
+    if u and u.active_tag_server_id == server_id:
+        u.active_tag_server_id = None
     await manager.broadcast_to_server(str(server_id), {
         "event": "member_kick",
         "data": {"server_id": str(server_id), "user_id": str(user_id)},

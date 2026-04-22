@@ -1,5 +1,12 @@
 export type BadgeId = "platform_admin" | "verified" | "server_owner" | "early_user" | (string & {});
 
+export interface ClanTag {
+  label: string;
+  icon: string;
+  server_id: string;
+  server_name?: string | null;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -20,6 +27,7 @@ export interface User {
   notif_sound?: boolean;
   notif_desktop?: boolean;
   notif_level?: "all" | "mentions" | "none";
+  tag?: ClanTag | null;
 }
 
 export interface UserPublic {
@@ -35,6 +43,7 @@ export interface UserPublic {
   public_key?: string | null;
   signing_public_key?: string | null;
   badges?: BadgeId[];
+  tag?: ClanTag | null;
 }
 
 export interface Server {
@@ -45,6 +54,8 @@ export interface Server {
   owner_id: string;
   invite_code: string;
   is_discoverable: boolean;
+  tag_label?: string | null;
+  tag_icon?: string | null;
   created_at: string;
   member_count: number;
 }
