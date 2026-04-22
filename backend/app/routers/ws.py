@@ -90,7 +90,7 @@ async def _log_call_started(
     if not stored:
         return
 
-    manager.set_call_log_msg_id(room_id, str(stored.id))
+    await manager.set_call_log_msg_id(room_id, str(stored.id))
     payload = _dm_msg_payload(stored)
     part_ids = await _dm_participant_ids(db, dm_uuid)
     await manager.broadcast_to_users(part_ids, {"event": "dm_message_create", "data": payload})
@@ -222,7 +222,7 @@ async def websocket_endpoint(
             return
 
         # Register connection
-        manager.connect(str(user.id), ws)
+        await manager.connect(str(user.id), ws)
 
         # Join all servers user belongs to
         result = await db.execute(
@@ -256,7 +256,8 @@ async def websocket_endpoint(
         # Send voice snapshot: who's currently in which voice room on user's servers
         # Also include DM voice rooms where the user participates (to catch active calls)
         snapshot: dict[str, list[str]] = {}
-        for room_id, members in manager._voice_rooms.items():
+        _all_rooms = await manager.voice_all_rooms()
+        for room_id, members in _all_rooms.items():
             if room_id.startswith("channel:"):
                 try:
                     ch_uuid = uuid.UUID(room_id.split(":", 1)[1])
@@ -381,7 +382,7 @@ async def websocket_endpoint(
                             "data": {"message": "Нет права подключаться к этому каналу"},
                         }))
                         continue
-                existing, is_new_call = manager.voice_join(str(user.id), room_id)
+                existing, is_new_call = await manager.voice_join(str(user.id), room_id)
                 await ws.send_text(json.dumps({
                     "event": "voice_room_joined",
                     "data": {"room_id": room_id, "peers": existing},
@@ -430,7 +431,7 @@ async def websocket_endpoint(
                     await manager.send_to_user(peer_id, notify_data)
 
             elif event == "voice_leave":
-                room_id, remaining, ended_meta = manager.voice_leave(str(user.id))
+                room_id, remaining, ended_meta = await manager.voice_leave(str(user.id))
                 if not room_id:
                     continue
                 if ended_meta:
@@ -500,7 +501,7 @@ async def websocket_endpoint(
                 )
                 if not mem_res.scalar_one_or_none():
                     continue
-                current_room = manager.voice_room_of(target_id)
+                current_room = await manager.voice_room_of(target_id)
                 if current_room == to_room:
                     continue
                 await manager.send_to_user(target_id, {
@@ -520,7 +521,7 @@ async def websocket_endpoint(
                 if not target_id:
                     continue
                 # Target must be in a voice room
-                current_room = manager.voice_room_of(target_id)
+                current_room = await manager.voice_room_of(target_id)
                 if not current_room or not current_room.startswith("channel:"):
                     continue
                 try:
@@ -572,9 +573,9 @@ async def websocket_endpoint(
                 bundle = payload.get("bundle")
                 if not room_id or not bundle:
                     continue
-                if manager.voice_room_of(str(user.id)) != room_id:
+                if await manager.voice_room_of(str(user.id)) != room_id:
                     continue  # sender must be in that room
-                peers = manager.voice_room_members(room_id)
+                peers = await manager.voice_room_members(room_id)
                 for peer_id in peers:
                     if peer_id == str(user.id):
                         continue
@@ -595,9 +596,9 @@ async def websocket_endpoint(
                 sealed = payload.get("sealed")
                 if not room_id or not target_user_id or not sealed:
                     continue
-                if manager.voice_room_of(str(user.id)) != room_id:
+                if await manager.voice_room_of(str(user.id)) != room_id:
                     continue
-                if manager.voice_room_of(str(target_user_id)) != room_id:
+                if await manager.voice_room_of(str(target_user_id)) != room_id:
                     continue
                 await manager.send_to_user(str(target_user_id), {
                     "event": "voice_key_distribute",
@@ -627,7 +628,7 @@ async def websocket_endpoint(
                     # killed / dozing — Android delivers FCM HIGH priority
                     # within seconds. Data payload lets the client optionally
                     # open the incoming-call UI on tap.
-                    if not manager.is_online(str(target_id)):
+                    if not await manager.is_online(str(target_id)):
                         try:
                             from app.services.fcm import send_to_user as _fcm
                             name = user.display_name or user.username
@@ -665,7 +666,7 @@ async def websocket_endpoint(
     finally:
         if user:
             # Leave voice room if any
-            room_id, remaining, ended_meta = manager.voice_leave(str(user.id))
+            room_id, remaining, ended_meta = await manager.voice_leave(str(user.id))
             if room_id and ended_meta:
                 started_at, starter_id, log_msg_id = ended_meta
                 try:
@@ -702,8 +703,8 @@ async def websocket_endpoint(
                 if not broadcasted:
                     for peer_id in remaining:
                         await manager.send_to_user(peer_id, notify_data)
-            manager.disconnect(str(user.id), ws)
-            if not manager.is_online(str(user.id)):
+            await manager.disconnect(str(user.id), ws)
+            if not await manager.is_online(str(user.id)):
                 try:
                     fresh = await db.get(User, user.id)
                     if fresh:

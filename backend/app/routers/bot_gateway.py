@@ -310,7 +310,7 @@ async def bot_gateway(ws: WebSocket):
 
                     # Also evict the bot from any voice room it was still in,
                     # so the participants list on the frontend updates.
-                    room_id, _rem, _ended = _ws_manager.voice_leave(str(conn.bot_user_id))
+                    room_id, _rem, _ended = await _ws_manager.voice_leave(str(conn.bot_user_id))
                     log.info("bot_gateway cleanup voice_leave: bot=%s room=%s",
                              conn.bot_user_id, room_id)
                     if room_id:

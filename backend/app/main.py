@@ -137,7 +137,25 @@ async def lifespan(app: FastAPI):
     # Create upload dirs
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
     Path(f"{settings.UPLOAD_DIR}/avatars").mkdir(exist_ok=True)
+
+    # Attach Redis pub-sub to the WebSocket manager so fan-out works across
+    # backend replicas. Single-replica setups keep working since publish
+    # still delivers to the same process via Redis loopback.
+    try:
+        import redis.asyncio as aioredis
+        from app.services.websocket_service import manager as ws_manager
+        redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=False)
+        await ws_manager.start(redis_client)
+    except Exception as e:
+        logging.warning("ws pub-sub not attached, running local-only: %s", e)
+
     yield
+
+    try:
+        from app.services.websocket_service import manager as ws_manager
+        await ws_manager.stop()
+    except Exception:
+        pass
 
 app = FastAPI(
     title="HiRoo API",

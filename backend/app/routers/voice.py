@@ -1,5 +1,8 @@
+import base64
+import hashlib
+import logging
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -16,6 +19,7 @@ from app.schemas.notification import VoiceJoin, VoiceStateUpdate, VoiceStateResp
 from app.services.websocket_service import manager
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
+log = logging.getLogger("hiroo.voice.webhook")
 
 
 class VoiceTokenResponse(BaseModel):
@@ -185,7 +189,7 @@ async def voice_presence_join(
             raise HTTPException(status_code=403, detail="Not a DM participant")
         channel = None
 
-    existing, _new = manager.voice_join(str(current_user.id), room_id)
+    existing, _new = await manager.voice_join(str(current_user.id), room_id)
 
     notify = {
         "event": "voice_peer_joined",
@@ -217,7 +221,7 @@ async def voice_presence_leave(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    room_id, remaining, _ended = manager.voice_leave(str(current_user.id))
+    room_id, remaining, _ended = await manager.voice_leave(str(current_user.id))
     if not room_id:
         return {"ok": True}
     notify = {
@@ -329,3 +333,128 @@ async def update_voice_state(
             "data": VoiceStateResponse.model_validate(vs).model_dump(mode="json"),
         })
     return vs
+
+
+# ── LiveKit webhook — server-side source of truth for voice presence ──
+#
+# LiveKit signs webhooks with a JWT in the Authorization header. The JWT is
+# HS256-signed with our API secret and its `sha256` claim contains the
+# base64-encoded SHA-256 of the raw request body. We validate both before
+# trusting the payload.
+#
+# participant_joined → SADD Redis + broadcast voice_peer_joined
+# participant_left   → SREM Redis + broadcast voice_peer_left
+#
+# This lets us show "X is in the call" to every client on the server even
+# if the client's browser-side WS `voice_join` event never arrives (e.g. the
+# client crashes or loses WS mid-call).
+
+async def _broadcast_peer_event(
+    db: AsyncSession,
+    room_id: str,
+    event: str,
+    user_id: str,
+    username: str | None = None,
+) -> None:
+    notify = {
+        "event": event,
+        "data": {"room_id": room_id, "user_id": user_id},
+    }
+    if username is not None:
+        notify["data"]["username"] = username
+    if room_id.startswith("channel:"):
+        try:
+            ch_uuid = uuid.UUID(room_id.split(":", 1)[1])
+        except ValueError:
+            return
+        ch = (await db.execute(select(Channel).where(Channel.id == ch_uuid))).scalar_one_or_none()
+        if ch:
+            await manager.broadcast_to_server(str(ch.server_id), notify)
+    elif room_id.startswith("dm:"):
+        try:
+            dm_uuid = uuid.UUID(room_id.split(":", 1)[1])
+        except ValueError:
+            return
+        p_all = await db.execute(
+            select(DMParticipant.user_id).where(DMParticipant.dm_id == dm_uuid)
+        )
+        await manager.broadcast_to_users([str(uid) for (uid,) in p_all.all()], notify)
+
+
+@router.post("/webhook", include_in_schema=False)
+async def livekit_webhook(
+    request: Request,
+    authorization: str | None = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    if not settings.LIVEKIT_API_KEY or not settings.LIVEKIT_API_SECRET:
+        raise HTTPException(status_code=503, detail="LiveKit not configured")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization")
+    token = authorization.strip()
+    if token.lower().startswith("bearer "):
+        token = token.split(" ", 1)[1].strip()
+
+    raw_body = await request.body()
+    body_sha = base64.b64encode(hashlib.sha256(raw_body).digest()).decode("ascii")
+
+    from jose import jwt, JWTError
+    try:
+        claims = jwt.decode(
+            token, settings.LIVEKIT_API_SECRET, algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
+    except JWTError as e:
+        log.warning("livekit webhook jwt invalid: %s", e)
+        raise HTTPException(status_code=401, detail="Invalid webhook JWT")
+    if claims.get("iss") != settings.LIVEKIT_API_KEY:
+        raise HTTPException(status_code=401, detail="Unknown issuer")
+    claim_sha = claims.get("sha256")
+    if claim_sha != body_sha:
+        log.warning("livekit webhook body hash mismatch")
+        raise HTTPException(status_code=401, detail="Body hash mismatch")
+
+    import json as _json
+    try:
+        payload = _json.loads(raw_body.decode("utf-8")) if raw_body else {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad JSON")
+
+    event = payload.get("event")
+    participant = payload.get("participant") or {}
+    room = payload.get("room") or {}
+    identity = participant.get("identity") or ""
+    room_name = room.get("name") or ""
+    if not identity or not room_name:
+        return {"ok": True, "skipped": "no identity/room"}
+    if not (room_name.startswith("channel:") or room_name.startswith("dm:")):
+        return {"ok": True, "skipped": "unknown room prefix"}
+
+    log.info("lk webhook event=%s identity=%s room=%s", event, identity, room_name)
+
+    if event == "participant_joined":
+        # Dedupe against the WS-initiated voice_join path: if the user is
+        # already tracked in this room, skip the broadcast (state is in sync).
+        prev_room = await manager.voice_room_of(identity)
+        await manager.voice_join(identity, room_name)
+        if prev_room == room_name:
+            return {"ok": True, "deduped": True}
+        uname: str | None = participant.get("name") or None
+        if not uname:
+            try:
+                u = (await db.execute(select(User).where(User.id == uuid.UUID(identity)))).scalar_one_or_none()
+                if u:
+                    uname = u.display_name or u.username
+            except Exception:
+                uname = None
+        await _broadcast_peer_event(db, room_name, "voice_peer_joined", identity, uname)
+
+    elif event == "participant_left":
+        prev_room = await manager.voice_room_of(identity)
+        if prev_room is None:
+            return {"ok": True, "deduped": True}
+        room_id, _remaining, _ended = await manager.voice_leave(identity)
+        target_room = room_id or room_name
+        await _broadcast_peer_event(db, target_room, "voice_peer_left", identity)
+
+    return {"ok": True}

@@ -218,7 +218,10 @@ async def send_message(
     # FCM push to offline mentioned users — so they get a notification even
     # when the app isn't running. Online users already saw it via WS.
     if mentioned_user_ids:
-        offline = [uid for uid in mentioned_user_ids if not manager.is_online(uid)]
+        offline: list[str] = []
+        for uid in mentioned_user_ids:
+            if not await manager.is_online(uid):
+                offline.append(uid)
         if offline:
             try:
                 from app.services.fcm import send_to_user as _fcm
@@ -405,7 +408,7 @@ async def add_reaction(
     }, exclude_user=str(current_user.id))
 
     # Push to the message author if they're offline and someone else reacted.
-    if msg.author_id and msg.author_id != current_user.id and not manager.is_online(str(msg.author_id)):
+    if msg.author_id and msg.author_id != current_user.id and not await manager.is_online(str(msg.author_id)):
         try:
             from app.services.fcm import send_to_user as _fcm
             name = current_user.display_name or current_user.username

@@ -12,3 +12,7 @@ redis:
   address: redis:6379
 logging:
   level: info
+webhook:
+  api_key: devkey
+  urls:
+    - https://hiroo.intave.tech/api/voice/webhook

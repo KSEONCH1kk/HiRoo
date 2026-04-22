@@ -141,7 +141,7 @@ async def send_friend_request(
         "event": "friend_request",
         "data": {"from_user_id": str(current_user.id), "username": current_user.username},
     })
-    if not manager.is_online(str(target.id)):
+    if not await manager.is_online(str(target.id)):
         try:
             from app.services.fcm import send_to_user as _fcm
             name = current_user.display_name or current_user.username
