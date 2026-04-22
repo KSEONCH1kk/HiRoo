@@ -10,7 +10,9 @@ import { playCall, stopCall } from "@/lib/sounds";
 import { ScreenQualityPopover } from "@/components/voice/ScreenQualityPopover";
 import { SoundboardModal } from "@/components/voice/SoundboardModal";
 import { useSoundboardStore } from "@/store/soundboardStore";
-import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
+import { useVoiceVolumeStore } from "@/store/voiceVolumeStore";
+import { useFloatingCallStore } from "@/store/floatingCallStore";
+import { VoiceParticipantMenu } from "@/components/voice/VoiceParticipantMenu";
 import type { UserPublic } from "@/types";
 
 export function VoiceCall() {
@@ -213,7 +215,7 @@ export function VoiceCall() {
       </div>
       {soundboardOpen && active?.roomId && (
         <SoundboardModal roomId={active.roomId} onClose={() => setSoundboardOpen(false)} />
-      </div>
+      )}
       <div style={{ height: 84 }} />
     </div>
   );
@@ -223,36 +225,148 @@ function HiddenAudioLayer({ remotes }: { remotes: VoiceParticipant[] }) {
   return (
     <div style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }} aria-hidden>
       {remotes.map((p) => (
-        <RemoteAudio key={p.identity} track={p.audioTrack} />
+        <RemoteAudio key={p.identity} identity={p.identity} track={p.audioTrack} />
       ))}
     </div>
   );
 }
 
-function RemoteAudio({ track }: { track: MediaStreamTrack | null }) {
+function RemoteAudio({ identity, track }: { identity: string; track: MediaStreamTrack | null }) {
   const ref = useRef<HTMLAudioElement>(null);
+  const volume = useVoiceVolumeStore((s) => s.getVolume(identity));
+  const gainRef = useRef<{ ctx: AudioContext; gain: GainNode; src: MediaStreamAudioSourceNode } | null>(null);
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     if (track) el.srcObject = new MediaStream([track]);
     else el.srcObject = null;
+    // Reset WebAudio graph when the track changes.
+    if (gainRef.current) {
+      try { gainRef.current.src.disconnect(); } catch {}
+      try { gainRef.current.gain.disconnect(); } catch {}
+      try { gainRef.current.ctx.close(); } catch {}
+      gainRef.current = null;
+    }
   }, [track]);
+
+  // For volume ≤ 1 just use element.volume (simple + respects system output
+  // routing). For boosts > 1 attach a WebAudio GainNode and mute the element
+  // (the gain graph feeds the speakers instead).
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (volume <= 1) {
+      el.muted = false;
+      el.volume = Math.max(0, volume);
+      if (gainRef.current) {
+        try { gainRef.current.src.disconnect(); } catch {}
+        try { gainRef.current.gain.disconnect(); } catch {}
+        try { gainRef.current.ctx.close(); } catch {}
+        gainRef.current = null;
+      }
+      return;
+    }
+    // volume > 1 → boost with WebAudio.
+    if (!track) return;
+    if (!gainRef.current) {
+      try {
+        const ctx = new AudioContext();
+        const src = ctx.createMediaStreamSource(new MediaStream([track]));
+        const gain = ctx.createGain();
+        src.connect(gain).connect(ctx.destination);
+        gainRef.current = { ctx, src, gain };
+        el.muted = true;  // element plays nothing; WebAudio graph does
+      } catch { return; }
+    }
+    if (gainRef.current) gainRef.current.gain.gain.value = volume;
+  }, [volume, track]);
+
+  useEffect(() => () => {
+    if (gainRef.current) {
+      try { gainRef.current.src.disconnect(); } catch {}
+      try { gainRef.current.gain.disconnect(); } catch {}
+      try { gainRef.current.ctx.close(); } catch {}
+      gainRef.current = null;
+    }
+  }, []);
+
   return <audio ref={ref} autoPlay />;
 }
 
 function FloatingCall({ title, voice, userMap, onMax, onLeave }: { title: string; voice: ReturnType<typeof useVoice>; userMap: Map<string, UserPublic>; onMax: () => void; onLeave: () => Promise<void> }) {
   const speaker = voice.remotes.find((p) => p.isSpeaking) ?? voice.me;
   const profile = speaker ? userMap.get(speaker.identity) : null;
+
+  const { offsetX, offsetY, setOffset } = useFloatingCallStore();
+  const [dragging, setDragging] = useState(false);
+  const dragState = useRef<{ startX: number; startY: number; startOffX: number; startOffY: number; moved: boolean } | null>(null);
+
+  // Resolve anchored position. Default: right/bottom 18.
+  const width = 260;
+  const height = 150;
+  const padding = 8;
+  const maxX = typeof window !== "undefined" ? Math.max(0, window.innerWidth - width - padding) : 18;
+  const maxY = typeof window !== "undefined" ? Math.max(0, window.innerHeight - height - padding) : 18;
+  const right = Math.max(padding, Math.min(maxX, offsetX ?? 18));
+  const bottom = Math.max(padding, Math.min(maxY, offsetY ?? 18));
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest("[data-nodrag]")) return;
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    dragState.current = {
+      startX: e.clientX, startY: e.clientY,
+      startOffX: right, startOffY: bottom, moved: false,
+    };
+    setDragging(true);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragState.current) return;
+    const dx = e.clientX - dragState.current.startX;
+    const dy = e.clientY - dragState.current.startY;
+    if (!dragState.current.moved && Math.hypot(dx, dy) > 3) dragState.current.moved = true;
+    // Anchored bottom-right — mouse going right means decreasing X, mouse
+    // going down means decreasing Y.
+    const nextX = Math.max(padding, Math.min(maxX, dragState.current.startOffX - dx));
+    const nextY = Math.max(padding, Math.min(maxY, dragState.current.startOffY - dy));
+    setOffset(nextX, nextY);
+  };
+  const onPointerUp = () => {
+    const moved = dragState.current?.moved;
+    dragState.current = null;
+    setDragging(false);
+    return moved;
+  };
+
   return (
     <div style={{
-      position: "fixed", right: 18, bottom: 18, zIndex: 95, width: 260,
+      position: "fixed", right, bottom, zIndex: 95, width,
       background: "var(--bg-2)", border: "1px solid var(--line-strong)", borderRadius: 12,
       boxShadow: "0 20px 60px rgba(0,0,0,0.5)", overflow: "hidden",
+      userSelect: dragging ? "none" : "auto",
+      transition: dragging ? "none" : "box-shadow 120ms",
+      cursor: dragging ? "grabbing" : undefined,
     }}>
-      <div onClick={onMax} style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", borderBottom: "1px solid var(--line)" }}>
+      <div
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={(e) => {
+          const moved = onPointerUp();
+          if (!moved) onMax();
+          (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+        }}
+        onPointerCancel={onPointerUp}
+        style={{
+          padding: "10px 12px", display: "flex", alignItems: "center", gap: 10,
+          cursor: dragging ? "grabbing" : "grab", borderBottom: "1px solid var(--line)",
+          touchAction: "none",
+        }}
+        title="Перетащите — переместить · Клик — развернуть"
+      >
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--ok)", boxShadow: "0 0 6px var(--ok)" }} />
         <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{title}</span>
-        <i className="fa-solid fa-up-right-and-down-left-from-center" style={{ fontSize: 11, color: "var(--text-2)" }} />
+        <i className="fa-solid fa-up-right-and-down-left-from-center" style={{ fontSize: 11, color: "var(--text-2)" }} data-nodrag />
       </div>
       <div style={{ padding: 12, display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ position: "relative" }}>
@@ -286,7 +400,6 @@ function Tile({ p, self, profile }: { p: VoiceParticipant; self?: boolean; profi
   const [expanded, setExpanded] = useState(false);
   const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);
   const sbMuted = useSoundboardStore((s) => s.mutedUserIds.includes(p.identity));
-  const toggleSbMute = useSoundboardStore((s) => s.toggleMuted);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -394,18 +507,12 @@ function Tile({ p, self, profile }: { p: VoiceParticipant; self?: boolean; profi
         {self && <span style={{ fontSize: 10, opacity: 0.7, fontFamily: "Geist Mono" }}>· вы</span>}
       </div>
       {ctx && (
-        <ContextMenu
+        <VoiceParticipantMenu
           x={ctx.x}
           y={ctx.y}
+          userId={p.identity}
+          displayName={displayName}
           onClose={() => setCtx(null)}
-          items={[
-            {
-              icon: sbMuted ? "fa-volume-high" : "fa-volume-xmark",
-              label: sbMuted ? "Разрешить звуковую панель" : "Заглушить звуковую панель",
-              onClick: () => toggleSbMute(p.identity),
-              danger: !sbMuted,
-            } as MenuItem,
-          ]}
         />
       )}
     </div>

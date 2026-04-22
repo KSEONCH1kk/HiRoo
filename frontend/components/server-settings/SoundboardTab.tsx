@@ -1,11 +1,10 @@
 "use client";
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { soundboardApi } from "@/lib/api";
+import { soundboardApi, type SoundboardSound } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { useServerPermissions } from "@/hooks/useServerPermissions";
 import { useAuthStore } from "@/store/authStore";
-import type { SoundboardSound } from "@/types";
 
 const MAX_BYTES = 1 * 1024 * 1024;
 const MAX_DURATION_S = 30;

@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { soundboardApi, serversApi } from "@/lib/api";
+import { soundboardApi, serversApi, type SoundboardSound } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
-import type { SoundboardSound, Server } from "@/types";
+import type { Server } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 

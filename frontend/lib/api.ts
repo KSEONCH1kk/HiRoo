@@ -114,7 +114,16 @@ export const qrAuthApi = {
 };
 
 // ── Soundboard ───────────────────────────────────────────────
-import type { SoundboardSound } from "@/types";
+export interface SoundboardSound {
+  id: string;
+  server_id: string;
+  name: string;
+  emoji: string | null;
+  uploader_id: string | null;
+  duration_ms: number;
+  created_at: string | null;
+  url: string;
+}
 export const soundboardApi = {
   listServer: (serverId: string) =>
     api.get<SoundboardSound[]>(`/api/servers/${serverId}/sounds`).then((r) => r.data),
@@ -131,6 +140,41 @@ export const soundboardApi = {
     api.patch<SoundboardSound>(`/api/servers/${serverId}/sounds/${soundId}`, data).then((r) => r.data),
   delete: (serverId: string, soundId: string) =>
     api.delete(`/api/servers/${serverId}/sounds/${soundId}`),
+};
+
+// ── Server templates ─────────────────────────────────────────
+export interface ServerTemplate {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  creator_id: string | null;
+  source_server_id: string | null;
+  usage_count: number;
+  created_at: string;
+  url: string;
+  payload?: {
+    version?: number;
+    settings?: { description?: string | null; tag_label?: string | null; tag_icon?: string | null };
+    channels?: { key: string; name: string; type: string; position: number; topic?: string | null }[];
+    roles?: { key: string; name: string; color: string; position: number; permissions: number; hoist: boolean; mentionable: boolean; is_everyone: boolean }[];
+    channel_role_overrides?: { channel_key: string; role_key: string; allow: number; deny: number }[];
+  } | null;
+}
+
+export const templatesApi = {
+  listServer: (serverId: string) =>
+    api.get<ServerTemplate[]>(`/api/servers/${serverId}/templates`).then((r) => r.data),
+  create: (serverId: string, data: { name: string; description?: string }) =>
+    api.post<ServerTemplate>(`/api/servers/${serverId}/templates`, data).then((r) => r.data),
+  deleteOne: (serverId: string, templateId: string) =>
+    api.delete(`/api/servers/${serverId}/templates/${templateId}`),
+  preview: (code: string) =>
+    api.get<ServerTemplate>(`/api/templates/${code}`).then((r) => r.data),
+  createServer: (code: string, server_name?: string) =>
+    api.post<{ id: string; name: string }>(`/api/templates/${code}/create-server`, { server_name }).then((r) => r.data),
+  applyToExisting: (code: string, target_server_id: string, mode: "append" | "replace" = "append") =>
+    api.post<{ id: string; name: string }>(`/api/templates/${code}/apply`, { target_server_id, mode }).then((r) => r.data),
 };
 
 // ── Users ────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ from app.models.device import DeviceToken
 from app.models.block import UserBlock
 from app.models.session import Session as UserSession
 from app.models.soundboard import SoundboardSound
+from app.models.template import ServerTemplate
 
 __all__ = [
     "User", "Server", "ServerMember", "Channel",
@@ -33,4 +34,5 @@ __all__ = [
     "UserBlock",
     "UserSession",
     "SoundboardSound",
+    "ServerTemplate",
 ]

@@ -14,7 +14,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.rate_limit import limiter
 from app.middleware.security import SecurityHeadersMiddleware
 from app.middleware.logging import LoggingMiddleware
-from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy, qr_auth, soundboard
+from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy, qr_auth, soundboard, templates as templates_router
 from app.routers import webhooks as webhooks_router
 from app.routers import applications as applications_router
 from app.routers import oauth2 as oauth2_router
@@ -143,6 +143,22 @@ MIGRATIONS = [
     # existed, so current members can actually hear/play sounds without an
     # admin re-editing every role.
     "UPDATE roles SET permissions = permissions | 524288 WHERE is_everyone = TRUE AND (permissions & 524288) = 0",
+    # Server templates — serialised snapshots of channels/roles/settings.
+    """
+    CREATE TABLE IF NOT EXISTS server_templates (
+        id UUID PRIMARY KEY,
+        code VARCHAR(16) NOT NULL UNIQUE,
+        name VARCHAR(100) NOT NULL,
+        description VARCHAR(500),
+        creator_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        source_server_id UUID REFERENCES servers(id) ON DELETE SET NULL,
+        payload JSONB NOT NULL,
+        usage_count INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_server_templates_code ON server_templates (code)",
+    "CREATE INDEX IF NOT EXISTS ix_server_templates_source ON server_templates (source_server_id)",
 ]
 
 
@@ -225,6 +241,8 @@ app.include_router(auth.router)
 app.include_router(qr_auth.router)
 app.include_router(soundboard.router)
 app.include_router(soundboard.me_router)
+app.include_router(templates_router.router)
+app.include_router(templates_router.public_router)
 app.include_router(users.router)
 app.include_router(users.tag_icons_router)
 app.include_router(servers.router)

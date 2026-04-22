@@ -14,6 +14,7 @@ import { ChannelPermissionsModal } from "@/components/modals/ChannelPermissionsM
 import { WebhooksModal } from "@/components/modals/WebhooksModal";
 import { RoleAssignModal } from "@/components/modals/RoleAssignModal";
 import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
+import { VoiceParticipantMenu } from "@/components/voice/VoiceParticipantMenu";
 import { useUIStore } from "@/store/uiStore";
 import { useVoiceAdminStore } from "@/store/voiceAdminStore";
 import { SearchBarButton } from "@/components/layout/SearchBarButton";
@@ -356,7 +357,21 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
           items.push({ icon: "fa-hammer", label: "Забанить", danger: true,
             onClick: () => { if (confirm("Забанить участника?")) banMember.mutate(userId); } });
         }
-        return <ContextMenu x={voiceUserCtx.x} y={voiceUserCtx.y} items={items} onClose={() => setVoiceUserCtx(null)} />;
+        const name = userInfo?.nickname || u?.display_name || u?.username;
+        if (isSelf) {
+          // Own tile — keep the simple menu (no volume slider for yourself).
+          return <ContextMenu x={voiceUserCtx.x} y={voiceUserCtx.y} items={items} onClose={() => setVoiceUserCtx(null)} />;
+        }
+        return (
+          <VoiceParticipantMenu
+            x={voiceUserCtx.x}
+            y={voiceUserCtx.y}
+            userId={userId}
+            displayName={name}
+            extraItems={items}
+            onClose={() => setVoiceUserCtx(null)}
+          />
+        );
       })()}
 
       {voiceRoleModal && (
