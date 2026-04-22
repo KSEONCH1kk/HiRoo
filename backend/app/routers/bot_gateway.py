@@ -285,6 +285,10 @@ async def bot_gateway(ws: WebSocket):
                 c.application_id == conn.application_id
                 for c in _connections.values()
             )
+            log.info(
+                "bot_gateway cleanup start: bot=%s shard=%s still_online=%s",
+                conn.bot_user_id, conn.shard_id, still_online,
+            )
             try:
                 async with async_session() as db:
                     u = (await db.execute(select(User).where(User.id == conn.bot_user_id))).scalar_one_or_none()
@@ -296,13 +300,48 @@ async def bot_gateway(ws: WebSocket):
                         )
                         sids = [r[0] for r in rows.all()]
                     await db.commit()
-                if not still_online and sids:
+                if not still_online:
                     from app.services.websocket_service import manager as _ws_manager
                     for sid in sids:
                         await _ws_manager.broadcast_to_server(str(sid), {
                             "event": "presence_update",
                             "data": {"user_id": str(conn.bot_user_id), "status": "offline"},
                         }, exclude_user=str(conn.bot_user_id))
+
+                    # Also evict the bot from any voice room it was still in,
+                    # so the participants list on the frontend updates.
+                    room_id, _rem, _ended = _ws_manager.voice_leave(str(conn.bot_user_id))
+                    log.info("bot_gateway cleanup voice_leave: bot=%s room=%s",
+                             conn.bot_user_id, room_id)
+                    if room_id:
+                        notify = {
+                            "event": "voice_peer_left",
+                            "data": {"room_id": room_id, "user_id": str(conn.bot_user_id)},
+                        }
+                        if room_id.startswith("channel:"):
+                            try:
+                                from app.models.channel import Channel as _Channel
+                                ch_uuid = uuid.UUID(room_id.split(":", 1)[1])
+                                async with async_session() as db2:
+                                    ch = (await db2.execute(
+                                        select(_Channel).where(_Channel.id == ch_uuid)
+                                    )).scalar_one_or_none()
+                                if ch:
+                                    await _ws_manager.broadcast_to_server(str(ch.server_id), notify)
+                            except Exception:
+                                log.exception("voice cleanup: server broadcast failed")
+                        elif room_id.startswith("dm:"):
+                            try:
+                                from app.models.dm import DMParticipant as _DMP
+                                dm_uuid = uuid.UUID(room_id.split(":", 1)[1])
+                                async with async_session() as db2:
+                                    p_res = await db2.execute(
+                                        select(_DMP.user_id).where(_DMP.dm_id == dm_uuid)
+                                    )
+                                    uids = [str(u) for (u,) in p_res.all()]
+                                await _ws_manager.broadcast_to_users(uids, notify)
+                            except Exception:
+                                log.exception("voice cleanup: dm broadcast failed")
             except Exception:
                 log.exception("bot_gateway cleanup failed")
 

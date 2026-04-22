@@ -304,6 +304,35 @@ class Bot:
 
     # ── Run ──────────────────────────────────────────────────────────
 
+    # Tracks live voice connections so we can tear them down on shutdown.
+    _voice_connections: list = []
+
+    def _register_voice_connection(self, vc) -> None:
+        self._voice_connections.append(vc)
+
+    async def _graceful_cleanup(self) -> None:
+        """Called on shutdown (Ctrl+C or natural exit). Tries hard to leave
+        every voice room + DELETE presence so the frontend doesn't show a
+        ghost bot."""
+        # Disconnect voice first — this also DELETEs /api/voice/presence.
+        for vc in list(self._voice_connections):
+            try: await vc.disconnect()
+            except Exception: pass
+        self._voice_connections.clear()
+        # Fallback: even if a VoiceConnection never got registered, nuke
+        # presence by user — the endpoint is idempotent.
+        try:
+            await self.http.request("DELETE", "/api/voice/presence")
+        except Exception:
+            pass
+        for s in self._shards:
+            try: await s.close()
+            except Exception: pass
+        try:
+            await self.http.close()
+        except Exception:
+            pass
+
     def run(self, token: str) -> None:
         """Blocking helper — spins up shards and runs until Ctrl+C."""
         async def _main():
@@ -321,11 +350,11 @@ class Bot:
                 try:
                     await asyncio.gather(*[s.connect(session=session) for s in self._shards])
                 finally:
-                    for s in self._shards:
-                        await s.close()
-                    await self.http.close()
+                    await self._graceful_cleanup()
 
         try:
             asyncio.run(_main())
         except KeyboardInterrupt:
+            # asyncio.run already drained pending tasks incl. cleanup. Nothing
+            # more to do here.
             pass

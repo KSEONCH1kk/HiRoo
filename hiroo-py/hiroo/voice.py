@@ -177,4 +177,8 @@ async def connect_voice(bot: "Bot", *, guild_id: Optional[str] = None, channel_i
     url, token = await _get_voice_token(bot, room)
     vc = VoiceConnection(bot=bot, room_name=room, livekit_url=url, livekit_token=token)
     await vc.connect()
+    try:
+        bot._register_voice_connection(vc)
+    except AttributeError:
+        pass
     return vc
