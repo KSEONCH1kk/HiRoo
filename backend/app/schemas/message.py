@@ -1,7 +1,16 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from app.schemas.user import UserPublic
+
+
+def _validate_http_url(v: str | None) -> str | None:
+    if v is None or v == "":
+        return v
+    low = v.strip().lower()
+    if not (low.startswith("http://") or low.startswith("https://")):
+        raise ValueError("URL must start with http:// or https://")
+    return v
 
 
 class MessageCreate(BaseModel):
@@ -37,14 +46,29 @@ class EmbedAuthor(BaseModel):
     url: str | None = Field(None, max_length=500)
     icon_url: str | None = Field(None, max_length=500)
 
+    @field_validator("url", "icon_url")
+    @classmethod
+    def _v_url(cls, v):
+        return _validate_http_url(v)
+
 
 class EmbedFooter(BaseModel):
     text: str = Field(..., max_length=200)
     icon_url: str | None = Field(None, max_length=500)
 
+    @field_validator("icon_url")
+    @classmethod
+    def _v_url(cls, v):
+        return _validate_http_url(v)
+
 
 class EmbedImage(BaseModel):
     url: str = Field(..., max_length=500)
+
+    @field_validator("url")
+    @classmethod
+    def _v_url(cls, v):
+        return _validate_http_url(v)
 
 
 class EmbedField(BaseModel):
@@ -64,6 +88,11 @@ class Embed(BaseModel):
     image: EmbedImage | None = None
     thumbnail: EmbedImage | None = None
     fields: list[EmbedField] | None = Field(None, max_length=25)
+
+    @field_validator("url")
+    @classmethod
+    def _v_url(cls, v):
+        return _validate_http_url(v)
 
 
 class MessageResponse(BaseModel):

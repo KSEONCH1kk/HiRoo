@@ -7,6 +7,16 @@ function colorToCss(color: number | null | undefined): string {
   return `#${hex}`;
 }
 
+function safeHref(u: string | null | undefined): string | undefined {
+  if (!u) return undefined;
+  return /^https?:\/\//i.test(u) ? u : undefined;
+}
+
+function safeImg(u: string | null | undefined): string | undefined {
+  if (!u) return undefined;
+  return /^https?:\/\//i.test(u) || u.startsWith("/") ? u : undefined;
+}
+
 export function EmbedCard({ embed }: { embed: Embed }) {
   const accent = colorToCss(embed.color);
   const hasImage = !!embed.image?.url;
@@ -20,28 +30,33 @@ export function EmbedCard({ embed }: { embed: Embed }) {
       background: "var(--bg-2)",
     }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-        {embed.author && (
-          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "var(--text-0)" }}>
-            {embed.author.icon_url && (
-              <img src={embed.author.icon_url} alt="" style={{ width: 20, height: 20, borderRadius: "50%", objectFit: "cover" }} />
-            )}
-            {embed.author.url ? (
-              <a href={embed.author.url} target="_blank" rel="noreferrer noopener" style={{ color: "var(--text-0)", textDecoration: "none", fontWeight: 600 }}>{embed.author.name}</a>
-            ) : (
-              <span style={{ fontWeight: 600 }}>{embed.author.name}</span>
-            )}
-          </div>
-        )}
-        {embed.title && (
-          embed.url ? (
-            <a href={embed.url} target="_blank" rel="noreferrer noopener"
+        {embed.author && (() => {
+          const authorHref = safeHref(embed.author.url);
+          const authorIcon = safeImg(embed.author.icon_url);
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "var(--text-0)" }}>
+              {authorIcon && (
+                <img src={authorIcon} alt="" style={{ width: 20, height: 20, borderRadius: "50%", objectFit: "cover" }} />
+              )}
+              {authorHref ? (
+                <a href={authorHref} target="_blank" rel="noreferrer noopener" style={{ color: "var(--text-0)", textDecoration: "none", fontWeight: 600 }}>{embed.author!.name}</a>
+              ) : (
+                <span style={{ fontWeight: 600 }}>{embed.author!.name}</span>
+              )}
+            </div>
+          );
+        })()}
+        {embed.title && (() => {
+          const titleHref = safeHref(embed.url);
+          return titleHref ? (
+            <a href={titleHref} target="_blank" rel="noreferrer noopener"
                style={{ fontSize: 14.5, fontWeight: 700, color: "var(--accent)", textDecoration: "none" }}>
               {embed.title}
             </a>
           ) : (
             <div style={{ fontSize: 14.5, fontWeight: 700, color: "var(--text-0)" }}>{embed.title}</div>
-          )
-        )}
+          );
+        })()}
         {embed.description && (
           <div style={{ fontSize: 13.5, color: "var(--text-1)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
             {embed.description}
@@ -63,15 +78,18 @@ export function EmbedCard({ embed }: { embed: Embed }) {
             ))}
           </div>
         )}
-        {hasImage && (
-          <a href={embed.image!.url} target="_blank" rel="noreferrer noopener" style={{ display: "inline-block", marginTop: 2 }}>
-            <img src={embed.image!.url} alt="" style={{ maxWidth: "100%", maxHeight: 320, borderRadius: 6, display: "block" }} />
-          </a>
-        )}
+        {hasImage && (() => {
+          const imgSrc = safeImg(embed.image!.url);
+          return imgSrc ? (
+            <a href={imgSrc} target="_blank" rel="noreferrer noopener" style={{ display: "inline-block", marginTop: 2 }}>
+              <img src={imgSrc} alt="" style={{ maxWidth: "100%", maxHeight: 320, borderRadius: 6, display: "block" }} />
+            </a>
+          ) : null;
+        })()}
         {(embed.footer || embed.timestamp) && (
           <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: "var(--text-3)", marginTop: 4 }}>
-            {embed.footer?.icon_url && (
-              <img src={embed.footer.icon_url} alt="" style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover" }} />
+            {embed.footer?.icon_url && safeImg(embed.footer.icon_url) && (
+              <img src={safeImg(embed.footer.icon_url)!} alt="" style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover" }} />
             )}
             {embed.footer?.text && <span>{embed.footer.text}</span>}
             {embed.footer?.text && embed.timestamp && <span>·</span>}
@@ -83,11 +101,14 @@ export function EmbedCard({ embed }: { embed: Embed }) {
           </div>
         )}
       </div>
-      {hasThumbnail && (
-        <a href={embed.thumbnail!.url} target="_blank" rel="noreferrer noopener" style={{ display: "block" }}>
-          <img src={embed.thumbnail!.url} alt="" style={{ width: 80, height: 80, borderRadius: 6, objectFit: "cover" }} />
-        </a>
-      )}
+      {hasThumbnail && (() => {
+        const thumbSrc = safeImg(embed.thumbnail!.url);
+        return thumbSrc ? (
+          <a href={thumbSrc} target="_blank" rel="noreferrer noopener" style={{ display: "block" }}>
+            <img src={thumbSrc} alt="" style={{ width: 80, height: 80, borderRadius: 6, objectFit: "cover" }} />
+          </a>
+        ) : null;
+      })()}
     </div>
   );
 }

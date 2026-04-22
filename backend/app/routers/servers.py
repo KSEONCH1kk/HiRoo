@@ -43,8 +43,12 @@ async def discover_servers(
         .limit(limit)
     )
     if q:
-        like = f"%{q.lower()}%"
-        stmt = stmt.where(func.lower(Server.name).like(like) | func.lower(func.coalesce(Server.description, "")).like(like))
+        from app.core.search import escape_like
+        like = f"%{escape_like(q.lower())}%"
+        stmt = stmt.where(
+            func.lower(Server.name).like(like, escape="\\")
+            | func.lower(func.coalesce(Server.description, "")).like(like, escape="\\")
+        )
     result = await db.execute(stmt)
     return [_server_response(s, c) for s, c in result.all()]
 

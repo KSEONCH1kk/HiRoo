@@ -5,7 +5,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 function resolveAvatarUrl(url?: string | null): string | undefined {
   if (!url) return undefined;
-  if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:")) return url;
+  if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:image/")) return url;
   if (url.startsWith("/")) return `${API_BASE}${url}`;
   return url;
 }

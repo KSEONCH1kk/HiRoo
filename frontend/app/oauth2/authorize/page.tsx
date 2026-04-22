@@ -13,6 +13,11 @@ export default function Page() {
   );
 }
 
+function isSafeRedirect(url: string): boolean {
+  if (!url) return false;
+  return /^https?:\/\//i.test(url);
+}
+
 const SCOPE_COPY: Record<string, string> = {
   identify: "видеть ваш профиль",
   email: "видеть ваш email",
@@ -63,6 +68,10 @@ function AuthorizePage() {
       if (wantsBot && guildId) body.guild_id = guildId;
       const res = await oauth2Api.authorize(body);
       if (res.location) {
+        if (!isSafeRedirect(res.location)) {
+          setSuccess({ message: "Небезопасный redirect_uri — авторизация отменена" });
+          return;
+        }
         window.location.href = res.location;
         return;
       }
@@ -76,8 +85,12 @@ function AuthorizePage() {
   };
 
   const onDeny = () => {
+    if (!isSafeRedirect(redirect_uri)) {
+      setSuccess({ message: "Небезопасный redirect_uri — запрос отклонён" });
+      return;
+    }
     const sep = redirect_uri.includes("?") ? "&" : "?";
-    const loc = `${redirect_uri}${sep}error=access_denied${state ? `&state=${state}` : ""}`;
+    const loc = `${redirect_uri}${sep}error=access_denied${state ? `&state=${encodeURIComponent(state)}` : ""}`;
     window.location.href = loc;
   };
 

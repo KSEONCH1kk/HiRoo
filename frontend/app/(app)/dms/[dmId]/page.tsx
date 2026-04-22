@@ -19,7 +19,7 @@ import type { DirectMessage } from "@/types";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 function resolveIcon(url?: string | null): string | undefined {
   if (!url) return undefined;
-  if (url.startsWith("http") || url.startsWith("data:")) return url;
+  if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:image/")) return url;
   return `${API_BASE}${url}`;
 }
 
@@ -89,9 +89,12 @@ export default function DMPage({ params }: { params: { dmId: string } }) {
             </div>
           )
         ) : others[0] ? (
-          <div style={{ display: "inline-flex" }}>
-            <DMMemberPill user={others[0] as any} variant="pill" />
-          </div>
+          <Avatar
+            name={others[0].display_name || others[0].username}
+            src={others[0].avatar_url || undefined}
+            size={28}
+            shape="circle"
+          />
         ) : (
           <Avatar name="?" size={28} shape="circle" />
         )}

@@ -163,7 +163,8 @@ async def commands_for_channel(
     else:
         where.append(BotCommand.guild_id.is_(None))
     if q_lower:
-        where.append(BotCommand.name.ilike(f"{q_lower}%"))
+        from app.core.search import escape_like
+        where.append(BotCommand.name.ilike(f"{escape_like(q_lower)}%", escape="\\"))
 
     res = await db.execute(
         select(BotCommand).where(and_(*where)).order_by(BotCommand.name.asc()).limit(25)

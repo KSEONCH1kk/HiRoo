@@ -267,7 +267,8 @@ async def search_channel_messages(
     )
     q_clean = q.strip()
     if q_clean:
-        stmt = stmt.where(Message.content.ilike(f"%{q_clean}%"))
+        from app.core.search import escape_like
+        stmt = stmt.where(Message.content.ilike(f"%{escape_like(q_clean)}%", escape="\\"))
     if author_id:
         stmt = stmt.where(Message.author_id == author_id)
     if after:

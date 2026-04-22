@@ -15,7 +15,7 @@ import type { Server, DirectMessage } from "@/types";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 function resolveIcon(url?: string | null): string | undefined {
   if (!url) return undefined;
-  if (url.startsWith("http") || url.startsWith("data:")) return url;
+  if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:image/")) return url;
   return `${API_BASE}${url}`;
 }
 

@@ -84,7 +84,11 @@ function ComponentButton({ spec, messageId, channelId, dmId, guildId, applicatio
   const [loading, setLoading] = useState(false);
 
   const onClick = async () => {
-    if (spec.style === 5 && spec.url) { window.open(spec.url, "_blank", "noopener"); return; }
+    if (spec.style === 5 && spec.url) {
+      if (!/^https?:\/\//i.test(spec.url)) return;
+      window.open(spec.url, "_blank", "noopener");
+      return;
+    }
     if (!spec.custom_id || loading) return;
     setLoading(true);
     try {

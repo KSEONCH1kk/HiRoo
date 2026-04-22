@@ -237,7 +237,8 @@ async def search_dm_messages(
     )
     q_clean = q.strip()
     if q_clean:
-        stmt = stmt.where(DMMessage.content.ilike(f"%{q_clean}%"))
+        from app.core.search import escape_like
+        stmt = stmt.where(DMMessage.content.ilike(f"%{escape_like(q_clean)}%", escape="\\"))
     if author_id:
         stmt = stmt.where(DMMessage.author_id == author_id)
     if after:
