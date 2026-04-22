@@ -10,7 +10,7 @@ from app.core.deps import get_db, get_current_active_user
 from app.core.config import settings
 from app.core.rate_limit import limiter, LIMIT_API
 from app.models.user import User
-from app.schemas.user import UserPublic, UserResponse, UserUpdate, UserStatusUpdate
+from app.schemas.user import UserPublic, UserResponse, UserUpdate, UserStatusUpdate, PreferencesUpdate
 from app.services.badges import compute_badges
 from pydantic import BaseModel, Field
 
@@ -124,14 +124,17 @@ async def set_my_public_key(
 async def get_user(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     badges = await compute_badges(user, db)
-    return _with_badges(user, badges)
+    data = _with_badges(user, badges)
+    if current_user.id != user.id and not getattr(user, "show_online_status", True):
+        data["status"] = "offline"
+    return data
 
 
 # ── Block list ───────────────────────────────────────────────────────────
@@ -184,6 +187,122 @@ async def block_user(
     for req in fr.scalars():
         req.status = "blocked"
 
+    await db.flush()
+
+
+@router.patch("/me/preferences", response_model=UserResponse)
+async def update_my_preferences(
+    body: PreferencesUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(current_user, field, value)
+    await db.flush()
+    await db.refresh(current_user)
+    badges = await compute_badges(current_user, db)
+    return _with_badges(current_user, badges)
+
+
+@router.get("/me/devices")
+async def list_my_devices(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    from app.models.device import DeviceToken
+    rows = await db.execute(
+        select(DeviceToken).where(DeviceToken.user_id == current_user.id)
+        .order_by(DeviceToken.last_used_at.desc())
+    )
+    return [{
+        "id": str(t.id),
+        "platform": t.platform,
+        "token_suffix": t.token[-10:] if t.token else "",
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+        "last_used_at": t.last_used_at.isoformat() if t.last_used_at else None,
+    } for t in rows.scalars()]
+
+
+@router.delete("/me/devices/{device_id}", status_code=204)
+async def revoke_device(
+    device_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    from app.models.device import DeviceToken
+    r = await db.execute(select(DeviceToken).where(
+        DeviceToken.id == device_id, DeviceToken.user_id == current_user.id,
+    ))
+    t = r.scalar_one_or_none()
+    if t:
+        await db.delete(t)
+        await db.flush()
+
+
+# ── Login sessions ───────────────────────────────────────────────────────
+
+@router.get("/me/sessions")
+async def list_my_sessions(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Active login sessions — one per browser/device holding a refresh
+    token. The one matching the caller's refresh cookie is marked `current`."""
+    import hashlib
+    from app.models.session import Session as UserSession
+    rows = await db.execute(
+        select(UserSession).where(UserSession.user_id == current_user.id)
+        .order_by(UserSession.last_used_at.desc())
+    )
+    sessions = list(rows.scalars())
+    cookie_rt = request.cookies.get("refresh_token")
+    current_hash = hashlib.sha256(cookie_rt.encode("utf-8")).hexdigest() if cookie_rt else None
+
+    return [{
+        "id": str(s.id),
+        "ip": s.ip,
+        "user_agent": s.user_agent,
+        "created_at": s.created_at.isoformat() if s.created_at else None,
+        "last_used_at": s.last_used_at.isoformat() if s.last_used_at else None,
+        "current": s.refresh_token_hash == current_hash,
+    } for s in sessions]
+
+
+@router.delete("/me/sessions/{session_id}", status_code=204)
+async def revoke_session(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    from app.models.session import Session as UserSession
+    r = await db.execute(select(UserSession).where(
+        UserSession.id == session_id, UserSession.user_id == current_user.id,
+    ))
+    s = r.scalar_one_or_none()
+    if s:
+        await db.delete(s)
+        await db.flush()
+
+
+@router.delete("/me/sessions", status_code=204)
+async def revoke_all_other_sessions(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Log out everywhere except the calling browser/device."""
+    import hashlib
+    from app.models.session import Session as UserSession
+    cookie_rt = request.cookies.get("refresh_token")
+    keep_hash = hashlib.sha256(cookie_rt.encode("utf-8")).hexdigest() if cookie_rt else None
+    rows = await db.execute(
+        select(UserSession).where(UserSession.user_id == current_user.id)
+    )
+    for s in rows.scalars():
+        if keep_hash and s.refresh_token_hash == keep_hash:
+            continue
+        await db.delete(s)
     await db.flush()
 
 

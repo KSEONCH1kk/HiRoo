@@ -8,6 +8,7 @@ import { MessageSearchModal } from "@/components/chat/MessageSearchModal";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { messagesApi } from "@/lib/api";
 import { useChatStore } from "@/store/chatStore";
+import { useAuthStore } from "@/store/authStore";
 import { useUnreadStore } from "@/store/unreadStore";
 import { MembersPanel } from "@/components/chat/MembersPanel";
 
@@ -17,13 +18,26 @@ export default function ChannelPage({ params }: { params: Params }) {
   const { serverId, channelId } = params;
   const { setActiveServer, setActiveChannel, channels } = useServerStore();
   const { mode, setMode, membersOpen } = useUIStore();
-  const { addMessage } = useChatStore();
+  const { addMessage, addFailed } = useChatStore();
   const [searchOpen, setSearchOpen] = useState(false);
   const isMobile = useIsMobile();
+  const { user } = useAuthStore();
 
   const sendMessage = async (content: string, replyToId?: string | null) => {
-    const msg = await messagesApi.send(channelId, content, replyToId ?? undefined);
-    addMessage(msg);
+    try {
+      const msg = await messagesApi.send(channelId, content, replyToId ?? undefined);
+      addMessage(msg);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      addFailed({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        roomKey: channelId,
+        content,
+        error: typeof detail === "string" ? detail : "Сообщение не отправлено",
+        authorId: user?.id ?? "",
+        created_at: new Date().toISOString(),
+      });
+    }
   };
 
   useEffect(() => {

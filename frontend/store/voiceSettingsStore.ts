@@ -11,6 +11,9 @@ interface State {
   outputVolume: number;    // 0..1
   screenResolution: ScreenRes;
   screenFps: ScreenFps;
+  noiseSuppression: boolean;
+  echoCancellation: boolean;
+  autoGainControl: boolean;
 
   setInputDeviceId: (id: string) => void;
   setOutputDeviceId: (id: string) => void;
@@ -18,6 +21,9 @@ interface State {
   setOutputVolume: (v: number) => void;
   setScreenResolution: (v: ScreenRes) => void;
   setScreenFps: (v: ScreenFps) => void;
+  setNoiseSuppression: (v: boolean) => void;
+  setEchoCancellation: (v: boolean) => void;
+  setAutoGainControl: (v: boolean) => void;
 }
 
 export function screenResolutionSize(r: ScreenRes): { width: number; height: number } {
@@ -45,12 +51,18 @@ export const useVoiceSettingsStore = create<State>()(
       outputVolume: 1,
       screenResolution: "1080",
       screenFps: 60,
+      noiseSuppression: true,
+      echoCancellation: true,
+      autoGainControl: true,
       setInputDeviceId: (inputDeviceId) => set({ inputDeviceId }),
       setOutputDeviceId: (outputDeviceId) => set({ outputDeviceId }),
       setInputVolume: (inputVolume) => set({ inputVolume: Math.max(0, Math.min(1, inputVolume)) }),
       setOutputVolume: (outputVolume) => set({ outputVolume: Math.max(0, Math.min(1, outputVolume)) }),
       setScreenResolution: (screenResolution) => set({ screenResolution }),
       setScreenFps: (screenFps) => set({ screenFps }),
+      setNoiseSuppression: (noiseSuppression) => set({ noiseSuppression }),
+      setEchoCancellation: (echoCancellation) => set({ echoCancellation }),
+      setAutoGainControl: (autoGainControl) => set({ autoGainControl }),
     }),
     { name: "hiroo-voice-settings" },
   ),

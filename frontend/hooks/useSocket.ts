@@ -52,7 +52,11 @@ export function useSocket() {
       }
       if (serverId && msg.channel_id !== activeChannelId) {
         useUnreadStore.getState().addServerMention(serverId);
-        playNotify();
+        const me2 = useAuthStore.getState().user;
+        const level = me2?.notif_level ?? "mentions";
+        if (level === "none") return;                       // suppresses sound + toast
+        if (me2?.notif_sound !== false) playNotify();
+        if (me2?.notif_desktop === false) return;
         const title = msg.author?.display_name ?? msg.author?.username ?? "HiRoo";
         const trimmed = content.slice(0, 180);
         // Desktop (Electron) — native Windows/macOS/Linux toast.
@@ -91,7 +95,11 @@ export function useSocket() {
 
       if (!isGroup) {
         useUnreadStore.getState().addDmUnread(msg.dm_id);
-        playNotify();
+        const me3 = useAuthStore.getState().user;
+        const level3 = me3?.notif_level ?? "mentions";
+        if (level3 === "none") return;
+        if (me3?.notif_sound !== false) playNotify();
+        if (me3?.notif_desktop === false) return;
         const title = msg.author?.display_name ?? msg.author?.username ?? "HiRoo";
         const trimmed = (msg.content || "").slice(0, 180);
         try {

@@ -1,4 +1,5 @@
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
+import hashlib
 import uuid
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, Cookie
@@ -13,9 +14,33 @@ from app.core.security import (
 from app.core.config import settings
 from app.core.rate_limit import limiter, LIMIT_AUTH
 from app.models.user import User
+from app.models.session import Session as UserSession
 from app.schemas.user import UserCreate, UserLogin, TokenResponse, UserResponse
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+def _hash_token(t: str) -> str:
+    return hashlib.sha256(t.encode("utf-8")).hexdigest()
+
+
+def _client_meta(request: Request) -> tuple[str, str]:
+    xff = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    ip = xff or (request.client.host if request.client else "")
+    ua = (request.headers.get("user-agent") or "")[:400]
+    return ip, ua
+
+
+async def _create_session(db: AsyncSession, user_id: uuid.UUID, refresh_token: str,
+                          request: Request) -> UserSession:
+    ip, ua = _client_meta(request)
+    s = UserSession(
+        user_id=user_id, refresh_token_hash=_hash_token(refresh_token),
+        ip=ip or None, user_agent=ua or None,
+    )
+    db.add(s)
+    await db.flush()
+    return s
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
@@ -48,6 +73,7 @@ async def register(
 
     access_token = create_access_token({"sub": str(user.id)})
     refresh_token = create_refresh_token({"sub": str(user.id)})
+    await _create_session(db, user.id, refresh_token, request)
 
     response.set_cookie(
         "refresh_token", refresh_token,
@@ -80,6 +106,7 @@ async def login(
 
     access_token = create_access_token({"sub": str(user.id)})
     refresh_token = create_refresh_token({"sub": str(user.id)})
+    await _create_session(db, user.id, refresh_token, request)
 
     response.set_cookie(
         "refresh_token", refresh_token,
@@ -94,14 +121,26 @@ async def login(
 async def logout(
     request: Request,
     response: Response,
+    refresh_token: str | None = Cookie(default=None),
     redis: aioredis.Redis = Depends(get_redis),
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
     from fastapi.security import HTTPBearer
     credentials = await HTTPBearer(auto_error=False)(request)
     if credentials:
         ttl = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         await redis.setex(f"blacklist:{credentials.credentials}", ttl, "1")
+
+    # Kill the matching session row so /settings/devices reflects the logout.
+    if refresh_token:
+        tok_hash = _hash_token(refresh_token)
+        sess_res = await db.execute(
+            select(UserSession).where(UserSession.refresh_token_hash == tok_hash)
+        )
+        s = sess_res.scalar_one_or_none()
+        if s:
+            await db.delete(s)
 
     response.delete_cookie("refresh_token", path="/")
 
@@ -134,7 +173,18 @@ async def refresh(
     if not user or user.is_banned:
         raise exc
 
-    # Rotate refresh token
+    # Look up the session this refresh belongs to — we need it to update the
+    # hash on rotation and to enforce explicit revoke from /settings/devices.
+    tok_hash = _hash_token(refresh_token)
+    sess_res = await db.execute(
+        select(UserSession).where(UserSession.refresh_token_hash == tok_hash)
+    )
+    sess = sess_res.scalar_one_or_none()
+    if sess is None:
+        # Revoked (or never tracked — legacy tokens from before this change).
+        raise exc
+
+    # Rotate refresh token.
     await redis.setex(
         f"blacklist_refresh:{refresh_token}",
         settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
@@ -142,6 +192,13 @@ async def refresh(
     )
     new_access = create_access_token({"sub": str(user.id)})
     new_refresh = create_refresh_token({"sub": str(user.id)})
+
+    sess.refresh_token_hash = _hash_token(new_refresh)
+    sess.last_used_at = datetime.now(timezone.utc)
+    ip, ua = _client_meta(request)
+    if ip: sess.ip = ip
+    if ua: sess.user_agent = ua
+    await db.flush()
 
     response.set_cookie(
         "refresh_token", new_refresh,

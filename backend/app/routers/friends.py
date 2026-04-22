@@ -84,6 +84,9 @@ async def send_friend_request(
     from app.services.blocks import either_blocks
     if await either_blocks(current_user.id, target.id, db):
         raise HTTPException(status_code=403, detail="Пользователь недоступен")
+    from app.services.privacy import can_send_friend_request
+    if not await can_send_friend_request(current_user, target, db):
+        raise HTTPException(status_code=403, detail="Пользователь принимает заявки только от друзей")
 
     existing = await db.execute(
         select(FriendRequest).where(

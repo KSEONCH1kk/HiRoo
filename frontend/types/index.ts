@@ -14,6 +14,12 @@ export interface User {
   public_key?: string | null;
   signing_public_key?: string | null;
   badges?: BadgeId[];
+  dm_permission?: "everyone" | "friends";
+  friend_request_permission?: "everyone" | "friends";
+  show_online_status?: boolean;
+  notif_sound?: boolean;
+  notif_desktop?: boolean;
+  notif_level?: "all" | "mentions" | "none";
 }
 
 export interface UserPublic {

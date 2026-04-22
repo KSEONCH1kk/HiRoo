@@ -213,6 +213,10 @@ export function useVoice() {
       }
     }
 
+    // Pull current audio-processing settings — these flip the Chromium-level
+    // RNNoise + echo canceller + AGC pipeline on/off on every mic track.
+    const vs0 = useVoiceSettingsStore.getState();
+
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
@@ -230,6 +234,14 @@ export function useVoice() {
       },
       videoCaptureDefaults: {
         resolution: { ...VideoPresets.h720.resolution, frameRate: 60 },
+      },
+      audioCaptureDefaults: {
+        noiseSuppression: vs0.noiseSuppression,
+        echoCancellation: vs0.echoCancellation,
+        autoGainControl: vs0.autoGainControl,
+        // Wideband mono for voice — matches Opus defaults.
+        channelCount: 1,
+        sampleRate: 48000,
       },
       ...(e2eeKeyProvider && e2eeWorker ? { e2ee: { keyProvider: e2eeKeyProvider, worker: e2eeWorker } } : {}),
     });

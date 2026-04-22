@@ -8,6 +8,7 @@ import { useServerRoles } from "@/hooks/useServerRoles";
 import { useServerPermissions } from "@/hooks/useServerPermissions";
 import { Message } from "./Message";
 import { TypingIndicator } from "./TypingIndicator";
+import { FailedMessageList } from "./FailedMessageList";
 import type { Message as MsgType } from "@/types";
 
 interface Props {
@@ -96,6 +97,7 @@ export function MessageList({ channelId, serverId }: Props) {
             />
           );
         })}
+        <FailedMessageList roomKey={channelId} />
         <div ref={bottomRef} />
       </div>
       <TypingIndicator roomKey={channelId} />

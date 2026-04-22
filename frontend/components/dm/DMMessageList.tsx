@@ -6,6 +6,7 @@ import { dmsApi } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
 import { MessageContent } from "@/components/chat/MessageContent";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
+import { FailedMessageList } from "@/components/chat/FailedMessageList";
 import { EmojiPicker } from "@/components/ui/EmojiPicker";
 import { formatMessageTime } from "@/lib/utils";
 import { isEncrypted, decryptDirect, decryptGroup, DIRECT_PREFIX, GROUP_PREFIX } from "@/lib/e2ee";
@@ -110,6 +111,7 @@ export function DMMessageList({ dmId }: Props) {
             />
           );
         })}
+        <FailedMessageList roomKey={dmId} />
         <div ref={bottomRef} />
       </div>
       <TypingIndicator roomKey={dmId} />

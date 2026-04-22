@@ -3,6 +3,9 @@ import { useRouter } from "next/navigation";
 import { ProfileSettings } from "@/components/settings/ProfileSettings";
 import { VoiceSettings } from "@/components/settings/VoiceSettings";
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
+import { PrivacySettings } from "@/components/settings/PrivacySettings";
+import { NotificationsSettings } from "@/components/settings/NotificationsSettings";
+import { DevicesSettings } from "@/components/settings/DevicesSettings";
 import { useAuthStore } from "@/store/authStore";
 import { authApi } from "@/lib/api";
 import { disconnectSocket } from "@/lib/socket";
@@ -14,6 +17,7 @@ const TABS = [
   { id: "appearance", label: "Внешний вид", icon: "fa-palette" },
   { id: "privacy", label: "Конфиденциальность", icon: "fa-lock" },
   { id: "notifications", label: "Уведомления", icon: "fa-bell" },
+  { id: "devices", label: "Устройства", icon: "fa-mobile-screen" },
   { id: "developers", label: "Developers", icon: "fa-code", external: "/developers" },
 ];
 
@@ -96,12 +100,9 @@ export default function SettingsPage({ params }: { params: { tab?: string[] } })
           {activeTab === "profile" && <ProfileSettings />}
           {activeTab === "voice" && <VoiceSettings />}
           {activeTab === "appearance" && <AppearanceSettings />}
-          {activeTab === "privacy" && (
-            <div style={{ color: "var(--text-2)", fontSize: 14 }}>Настройки конфиденциальности — скоро</div>
-          )}
-          {activeTab === "notifications" && (
-            <div style={{ color: "var(--text-2)", fontSize: 14 }}>Настройки уведомлений — скоро</div>
-          )}
+          {activeTab === "privacy" && <PrivacySettings />}
+          {activeTab === "notifications" && <NotificationsSettings />}
+          {activeTab === "devices" && <DevicesSettings />}
         </div>
       )}
     </div>

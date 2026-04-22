@@ -53,6 +53,22 @@ class UserResponse(BaseModel):
     public_key: str | None = None
     signing_public_key: str | None = None
     badges: list[str] = []
+    # Preferences (exposed only on /me)
+    dm_permission: str = "everyone"
+    friend_request_permission: str = "everyone"
+    show_online_status: bool = True
+    notif_sound: bool = True
+    notif_desktop: bool = True
+    notif_level: str = "mentions"
+
+
+class PreferencesUpdate(BaseModel):
+    dm_permission: str | None = Field(None, pattern=r"^(everyone|friends)$")
+    friend_request_permission: str | None = Field(None, pattern=r"^(everyone|friends)$")
+    show_online_status: bool | None = None
+    notif_sound: bool | None = None
+    notif_desktop: bool | None = None
+    notif_level: str | None = Field(None, pattern=r"^(all|mentions|none)$")
 
 
 class UserPublic(BaseModel):

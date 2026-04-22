@@ -12,11 +12,10 @@ export function VoiceSettings() {
 
   const {
     inputDeviceId, outputDeviceId, inputVolume, outputVolume,
+    noiseSuppression, echoCancellation, autoGainControl,
     setInputDeviceId, setOutputDeviceId, setInputVolume, setOutputVolume,
+    setNoiseSuppression, setEchoCancellation, setAutoGainControl,
   } = useVoiceSettingsStore();
-
-  const [echoCancellation, setEchoCancellation] = useState(true);
-  const [noiseSuppression, setNoiseSuppression] = useState(true);
 
   const loadDevices = async () => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) {
@@ -140,9 +139,19 @@ export function VoiceSettings() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 8, background: "var(--bg-2)" }}>
             <div>
               <div style={{ fontSize: 14, color: "var(--text-0)", fontWeight: 500 }}>Шумоподавление</div>
-              <div style={{ fontSize: 12, color: "var(--text-2)" }}>Фильтрует фоновые шумы</div>
+              <div style={{ fontSize: 12, color: "var(--text-2)" }}>RNNoise-фильтр Chromium. Убирает клавиатуру, кулеры, шум улицы.</div>
             </div>
             <Toggle on={noiseSuppression} onChange={setNoiseSuppression} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 8, background: "var(--bg-2)" }}>
+            <div>
+              <div style={{ fontSize: 14, color: "var(--text-0)", fontWeight: 500 }}>Автоподстройка громкости</div>
+              <div style={{ fontSize: 12, color: "var(--text-2)" }}>AGC — уравнивает уровень, если вы то ближе, то дальше от микрофона.</div>
+            </div>
+            <Toggle on={autoGainControl} onChange={setAutoGainControl} />
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-3)", padding: "4px 2px" }}>
+            Изменения применяются к следующему звонку. Если вы уже в звонке — выйдите и войдите обратно.
           </div>
         </div>
       </div>

@@ -82,6 +82,19 @@ export const usersApi = {
   listBlocks: () => api.get<UserPublic[]>(`/api/users/me/blocks`).then((r) => r.data),
   updateMe: (data: { display_name?: string; custom_status?: string }) =>
     api.patch<User>("/api/users/me", data).then((r) => r.data),
+  updatePreferences: (body: Partial<User>) =>
+    api.patch<User>(`/api/users/me/preferences`, body).then((r) => r.data),
+  listDevices: () => api.get<{
+    id: string; platform: string; token_suffix: string;
+    created_at: string | null; last_used_at: string | null;
+  }[]>(`/api/users/me/devices`).then((r) => r.data),
+  revokeDevice: (id: string) => api.delete(`/api/users/me/devices/${id}`),
+  listSessions: () => api.get<{
+    id: string; ip: string | null; user_agent: string | null;
+    created_at: string | null; last_used_at: string | null; current: boolean;
+  }[]>(`/api/users/me/sessions`).then((r) => r.data),
+  revokeSession: (id: string) => api.delete(`/api/users/me/sessions/${id}`),
+  revokeOtherSessions: () => api.delete(`/api/users/me/sessions`),
   updateStatus: (status: string) =>
     api.patch<User>("/api/users/me/status", { status }).then((r) => r.data),
   uploadAvatar: (file: File) => {

@@ -99,6 +99,25 @@ MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_user_blocks_blocked ON user_blocks (blocked_id)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS dm_permission VARCHAR(16) NOT NULL DEFAULT 'everyone'",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS friend_request_permission VARCHAR(16) NOT NULL DEFAULT 'everyone'",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS show_online_status BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_sound BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_desktop BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_level VARCHAR(16) NOT NULL DEFAULT 'mentions'",
+    """
+    CREATE TABLE IF NOT EXISTS sessions (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        refresh_token_hash VARCHAR(64) NOT NULL,
+        ip VARCHAR(64),
+        user_agent VARCHAR(400),
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        last_used_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_sessions_user_id ON sessions (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_sessions_refresh_token_hash ON sessions (refresh_token_hash)",
 ]
 
 

@@ -124,13 +124,18 @@ async def create_dm(
     is_group = len(all_ids) > 2
 
     # Can't open a DM with someone who's on your block list, or with someone
-    # who's blocked you.
+    # who's blocked you. Also honour the recipient's "only friends can DM" setting.
     from app.services.blocks import either_blocks
+    from app.services.privacy import can_dm
     for uid in all_ids:
         if uid == current_user.id:
             continue
         if await either_blocks(current_user.id, uid, db):
             raise HTTPException(status_code=403, detail="Пользователь заблокирован или заблокировал вас")
+        target_res = await db.execute(select(User).where(User.id == uid))
+        target = target_res.scalar_one_or_none()
+        if target and not await can_dm(current_user, target, db):
+            raise HTTPException(status_code=403, detail=f"{target.username} принимает ЛС только от друзей")
 
     if not is_group:
         other_id = next(i for i in all_ids if i != current_user.id)

@@ -1,6 +1,15 @@
 import { create } from "zustand";
 import type { Message, DMMessageType } from "@/types";
 
+export interface FailedMessage {
+  id: string;           // local uuid — lets us de-dupe and remove
+  roomKey: string;      // channel_id | dm_id
+  content: string;
+  error: string;        // short human-readable reason
+  authorId: string;
+  created_at: string;
+}
+
 export interface TypingUser {
   userId: string;
   username: string;
@@ -47,6 +56,12 @@ interface ChatState {
 
   startReply: (roomKey: string, target: ReplyTarget) => void;
   cancelReply: (roomKey: string) => void;
+
+  // Client-only failed delivery placeholders (visible only to sender).
+  failed: Record<string, FailedMessage[]>;  // roomKey -> failed
+  addFailed: (msg: FailedMessage) => void;
+  dismissFailed: (roomKey: string, id: string) => void;
+  clearFailed: (roomKey: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -60,6 +75,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({ replyingTo: { ...s.replyingTo, [roomKey]: target } })),
   cancelReply: (roomKey) =>
     set((s) => ({ replyingTo: { ...s.replyingTo, [roomKey]: null } })),
+
+  failed: {},
+  addFailed: (msg) =>
+    set((s) => ({
+      failed: {
+        ...s.failed,
+        [msg.roomKey]: [...(s.failed[msg.roomKey] ?? []), msg],
+      },
+    })),
+  dismissFailed: (roomKey, id) =>
+    set((s) => ({
+      failed: {
+        ...s.failed,
+        [roomKey]: (s.failed[roomKey] ?? []).filter((m) => m.id !== id),
+      },
+    })),
+  clearFailed: (roomKey) =>
+    set((s) => ({ failed: { ...s.failed, [roomKey]: [] } })),
 
   startEditLast: (channelId, userId) => {
     const list = get().messages[channelId] ?? [];

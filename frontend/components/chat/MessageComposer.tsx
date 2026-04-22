@@ -79,6 +79,21 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
     if (replyingTo) textareaRef.current?.focus();
   }, [replyingTo?.messageId]);
 
+  // Listen for retry requests from FailedMessageList — repopulate the
+  // textarea with the original text and drop the "not delivered" card.
+  useEffect(() => {
+    const myRoom = channelId ?? dmId ?? "";
+    const onRetry = (e: Event) => {
+      const detail = (e as CustomEvent<{ roomKey: string; content: string; id: string }>).detail;
+      if (!detail || detail.roomKey !== myRoom) return;
+      setValue(detail.content);
+      useChatStore.getState().dismissFailed(detail.roomKey, detail.id);
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    };
+    window.addEventListener("hiroo:retry-failed", onRetry);
+    return () => window.removeEventListener("hiroo:retry-failed", onRetry);
+  }, [channelId, dmId]);
+
   const insertEmoji = (emoji: string) => {
     const el = textareaRef.current;
     if (!el) { setValue((v) => v + emoji); return; }

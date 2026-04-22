@@ -23,6 +23,20 @@ class User(Base):
     is_bot: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     public_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     signing_public_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    # ── Privacy ──────────────────────────────────────────────────────
+    # "everyone" (default) | "friends"
+    dm_permission: Mapped[str] = mapped_column(String(16), default="everyone", nullable=False)
+    # "everyone" | "friends"
+    friend_request_permission: Mapped[str] = mapped_column(String(16), default="everyone", nullable=False)
+    show_online_status: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # ── Notifications ────────────────────────────────────────────────
+    notif_sound: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notif_desktop: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # "all" (every message) | "mentions" (only @user) | "none"
+    notif_level: Mapped[str] = mapped_column(String(16), default="mentions", nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
