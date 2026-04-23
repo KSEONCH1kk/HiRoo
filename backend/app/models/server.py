@@ -42,6 +42,10 @@ class ServerMember(Base):
     nickname: Mapped[str | None] = mapped_column(String(64), nullable=True)
     muted: Mapped[bool] = mapped_column(Boolean, default=False)
     deafened: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Per-user sort order in the left server rail. Lower = higher up.
+    # New memberships default to 0; `POST /api/servers/reorder` pushes the
+    # saved ordering.
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     server = relationship("Server", back_populates="members")

@@ -236,6 +236,8 @@ export const serversApi = {
     api.get<ServerMember[]>(`/api/servers/${id}/members`).then((r) => r.data),
   regenerateInvite: (id: string) =>
     api.post<{ invite_code: string }>(`/api/servers/${id}/invite`).then((r) => r.data),
+  reorder: (orderedIds: string[]) =>
+    api.post(`/api/servers/reorder`, orderedIds),
   myPermissions: (id: string) =>
     api.get<{ permissions: number }>(`/api/servers/${id}/me/permissions`).then((r) => r.data.permissions),
   uploadIcon: (id: string, file: File) => {

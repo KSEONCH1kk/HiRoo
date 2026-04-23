@@ -59,20 +59,64 @@ async def list_my_servers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    result = await db.execute(
-        select(ServerMember.server_id).where(ServerMember.user_id == current_user.id)
+    # Caller's memberships give us both the set of servers and this user's
+    # per-user sort order (ServerMember.position). Sort there, then by
+    # created_at for any ties (new members start at position=0).
+    mine = await db.execute(
+        select(ServerMember.server_id, ServerMember.position)
+        .where(ServerMember.user_id == current_user.id)
     )
-    server_ids = [r[0] for r in result.all()]
-    if not server_ids:
+    mine_rows = mine.all()
+    if not mine_rows:
         return []
+    position_by_sid = {row[0]: int(row[1] or 0) for row in mine_rows}
+    server_ids = list(position_by_sid.keys())
+
     srv_result = await db.execute(
         select(Server, func.count(ServerMember.user_id))
         .join(ServerMember, ServerMember.server_id == Server.id)
         .where(Server.id.in_(server_ids))
         .group_by(Server.id)
-        .order_by(Server.created_at.asc())
     )
-    return [_server_response(s, count) for s, count in srv_result.all()]
+    rows = list(srv_result.all())
+    rows.sort(key=lambda r: (position_by_sid.get(r[0].id, 0), r[0].created_at))
+    return [_server_response(s, count) for s, count in rows]
+
+
+@router.post("/reorder", status_code=204)
+async def reorder_my_servers(
+    ordered_ids: list[uuid.UUID],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Persist the user's desired sort order in the server rail.
+    Each membership row's position is set to the new index; servers not
+    present in the list keep their previous position but will sort after
+    the listed ones by virtue of a higher numeric value."""
+    if not ordered_ids:
+        return
+
+    # Load this user's memberships — we only update rows the caller owns.
+    rr = await db.execute(
+        select(ServerMember).where(
+            ServerMember.user_id == current_user.id,
+            ServerMember.server_id.in_(ordered_ids),
+        )
+    )
+    mem_by_sid = {m.server_id: m for m in rr.scalars()}
+    for idx, sid in enumerate(ordered_ids):
+        m = mem_by_sid.get(sid)
+        if m is not None:
+            m.position = idx
+    await db.flush()
+
+    # Notify all of the caller's own WS sessions so other tabs / devices
+    # resync immediately. (Other users don't need this — the order is
+    # private to each member.)
+    await manager.send_to_user(str(current_user.id), {
+        "event": "servers_reorder",
+        "data": {"ordered_ids": [str(i) for i in ordered_ids]},
+    })
 
 
 @router.post("", response_model=ServerResponse, status_code=201)

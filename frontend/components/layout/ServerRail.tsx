@@ -36,9 +36,34 @@ interface ServerRailProps {
 export function ServerRail({ servers, activeServerId, activeMode, onPickServer, onPickMode }: ServerRailProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [ctx, setCtx] = useState<{ x: number; y: number; server: Server } | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; pos: "before" | "after" } | null>(null);
   const router = useRouter();
   const qc = useQueryClient();
   const { servers: storeServers, setServers } = useServerStore();
+
+  const reorder = useMutation({
+    mutationFn: (orderedIds: string[]) => serversApi.reorder(orderedIds),
+    onError: () => {
+      // Rollback to server state on failure.
+      qc.invalidateQueries({ queryKey: ["my-servers"] });
+    },
+  });
+
+  const handleReorder = (sourceId: string, targetId: string, pos: "before" | "after") => {
+    if (sourceId === targetId) return;
+    const rail = [...servers];
+    const from = rail.findIndex((s) => s.id === sourceId);
+    if (from < 0) return;
+    const [moved] = rail.splice(from, 1);
+    let to = rail.findIndex((s) => s.id === targetId);
+    if (to < 0) return;
+    if (pos === "after") to += 1;
+    rail.splice(to, 0, moved);
+    // Optimistic local update — user sees their new order instantly.
+    setServers([...rail]);
+    reorder.mutate(rail.map((s) => s.id));
+  };
   const mentionsByServer = useUnreadStore((s) => s.mentionsByServer);
   const unreadByDm = useUnreadStore((s) => s.unreadByDm);
   const { user } = useAuthStore();
@@ -201,23 +226,53 @@ export function ServerRail({ servers, activeServerId, activeMode, onPickServer, 
       })}
       {unreadDms.length > 0 && <div style={{ width: 32, height: 1, background: "var(--line-strong)", margin: "4px 0" }} />}
 
-      {servers.map((s) => (
-        <div
-          key={s.id}
-          onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, server: s }); }}
-        >
-          {pill(
-            s.id,
-            s.icon_url
-              ? <img src={resolveIcon(s.icon_url)} style={{ width: 44, height: 44, borderRadius: "inherit", objectFit: "cover" }} alt={s.name} />
-              : s.name.slice(0, 2).toUpperCase(),
-            activeMode === "server" && activeServerId === s.id,
-            mentionsByServer[s.id] || undefined,
-            () => onPickServer(s.id),
-            hueFromId(s.id),
-          )}
-        </div>
-      ))}
+      {servers.map((s) => {
+        const hl = dropTarget?.id === s.id ? dropTarget.pos : null;
+        const isDragging = dragId === s.id;
+        return (
+          <div
+            key={s.id}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData("hiroo/server", s.id);
+              e.dataTransfer.effectAllowed = "move";
+              setDragId(s.id);
+            }}
+            onDragEnd={() => { setDragId(null); setDropTarget(null); }}
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes("hiroo/server")) return;
+              e.preventDefault();
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              const pos = (e.clientY - r.top) < r.height / 2 ? "before" : "after";
+              setDropTarget({ id: s.id, pos });
+            }}
+            onDragLeave={() => setDropTarget((t) => (t?.id === s.id ? null : t))}
+            onDrop={(e) => {
+              const src = e.dataTransfer.getData("hiroo/server");
+              e.preventDefault();
+              const pos = dropTarget?.id === s.id ? dropTarget.pos : "after";
+              setDropTarget(null);
+              setDragId(null);
+              if (src) handleReorder(src, s.id, pos);
+            }}
+            onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, server: s }); }}
+            style={{ position: "relative", opacity: isDragging ? 0.45 : 1, cursor: "grab" }}
+          >
+            {hl === "before" && <ServerDropLine />}
+            {pill(
+              s.id,
+              s.icon_url
+                ? <img src={resolveIcon(s.icon_url)} style={{ width: 44, height: 44, borderRadius: "inherit", objectFit: "cover" }} alt={s.name} />
+                : s.name.slice(0, 2).toUpperCase(),
+              activeMode === "server" && activeServerId === s.id,
+              mentionsByServer[s.id] || undefined,
+              () => onPickServer(s.id),
+              hueFromId(s.id),
+            )}
+            {hl === "after" && <ServerDropLine />}
+          </div>
+        );
+      })}
 
       {pill("add", <i className="fa-solid fa-plus" style={{ color: "var(--ok)", fontSize: 20 }} />, false, undefined, () => setCreateOpen(true))}
       {pill("explore", <i className={`fa-solid fa-compass`} style={{ color: activeMode === "explore" ? "#fff" : "var(--ok)", fontSize: 20 }} />, activeMode === "explore", undefined, () => onPickMode("explore"))}
@@ -236,4 +291,15 @@ export function ServerRail({ servers, activeServerId, activeMode, onPickServer, 
       <ContextMenu x={ctx.x} y={ctx.y} items={buildMenu(ctx.server)} onClose={() => setCtx(null)} />
     )}
   </>);
+}
+
+function ServerDropLine() {
+  return (
+    <div style={{
+      position: "absolute", left: 8, right: 8, height: 0,
+      borderTop: "2px solid var(--accent)",
+      pointerEvents: "none",
+      zIndex: 5,
+    }} />
+  );
 }

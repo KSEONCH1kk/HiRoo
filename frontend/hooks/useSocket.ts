@@ -233,6 +233,20 @@ export function useSocket() {
     const onChannelPermissionsUpdate = () => {
       qc.invalidateQueries({ queryKey: ["my-permissions"] });
     };
+    const onServersReorder = (payload: any) => {
+      const orderedIds: string[] = Array.isArray(payload?.ordered_ids) ? payload.ordered_ids : [];
+      if (!orderedIds.length) return;
+      const st = useServerStore.getState();
+      const byId = new Map(st.servers.map((s) => [s.id, s]));
+      const next: typeof st.servers = [];
+      for (const id of orderedIds) {
+        const s = byId.get(id);
+        if (s) { next.push(s); byId.delete(id); }
+      }
+      for (const leftover of byId.values()) next.push(leftover);
+      st.setServers(next);
+      qc.invalidateQueries({ queryKey: ["my-servers"] });
+    };
     const onVoiceForceDisconnect = async () => {
       const { active, controls, endCall } = useCallStore.getState();
       if (!active) return;
@@ -331,6 +345,7 @@ export function useSocket() {
     s.on("channel_update", onChannelUpdate);
     s.on("channel_delete", onChannelDelete);
     s.on("channel_reorder", onChannelReorder);
+    s.on("servers_reorder", onServersReorder);
     s.on("channel_permissions_update", onChannelPermissionsUpdate);
     s.on("channel_permissions_delete", onChannelPermissionsUpdate);
     s.on("voice_force_move", onVoiceForceMove);
@@ -371,6 +386,7 @@ export function useSocket() {
       s.off("channel_update", onChannelUpdate);
       s.off("channel_delete", onChannelDelete);
       s.off("channel_reorder", onChannelReorder);
+      s.off("servers_reorder", onServersReorder);
       s.off("channel_permissions_update", onChannelPermissionsUpdate);
       s.off("channel_permissions_delete", onChannelPermissionsUpdate);
       s.off("voice_force_move", onVoiceForceMove);

@@ -139,21 +139,25 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
   function handleDrop(sourceId: string, targetId: string | null, pos: "before" | "after" | "into") {
     const src = byId.get(sourceId);
     if (!src) return;
-    let newParent: string | null;
     const items: { id: string; position: number; parent_id: string | null }[] = [];
     if (pos === "into") {
       const target = targetId ? byId.get(targetId) : null;
       if (!target || target.type !== "category" || src.type === "category") return;
-      newParent = target.id;
       const siblings = (byParent.get(target.id) ?? []).filter((c) => c.id !== sourceId);
-      items.push({ id: sourceId, position: siblings.length, parent_id: newParent });
+      items.push({ id: sourceId, position: siblings.length, parent_id: target.id });
+    } else if (targetId === null) {
+      // Explicit detach: dropping on the top-level "no category" zone.
+      // Single-item update keeps the payload minimal and removes any chance
+      // of wrong sibling math when sourceId is in a nested category.
+      const existingTop = topLevel.filter((c) => c.id !== sourceId).length;
+      items.push({ id: sourceId, position: existingTop, parent_id: null });
     } else {
-      const target = targetId ? byId.get(targetId) : null;
-      newParent = target?.parent_id ?? null;
-      // Build new sibling list within newParent
+      const target = byId.get(targetId);
+      if (!target) return;
+      const newParent = target.parent_id ?? null;
       const siblings = (newParent ? byParent.get(newParent) ?? [] : topLevel)
         .filter((c) => c.id !== sourceId);
-      let insertIdx = target ? siblings.findIndex((c) => c.id === target.id) : siblings.length;
+      let insertIdx = siblings.findIndex((c) => c.id === target.id);
       if (insertIdx < 0) insertIdx = siblings.length;
       if (pos === "after") insertIdx += 1;
       siblings.splice(insertIdx, 0, src);
@@ -383,6 +387,50 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
             serverId={server.id}
           />
         ))}
+        {/* Persistent detach-from-category drop zone. Kept mounted so the
+            drag target doesn't disappear/appear mid-drag (browsers can
+            lose the dragover target if the DOM changes during a drag).
+            Only rendered when the viewer can actually manage channels. */}
+        {has("MANAGE_CHANNELS") && (
+          <div
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes("hiroo/channel")) return;
+              e.preventDefault();
+              e.stopPropagation();
+              setDropTarget({ id: null, pos: "after" });
+            }}
+            onDragLeave={(ev) => {
+              // Only clear when leaving the zone's bounds (avoid flicker).
+              const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+              const inside = ev.clientX >= r.left && ev.clientX <= r.right
+                && ev.clientY >= r.top && ev.clientY <= r.bottom;
+              if (!inside) setDropTarget((t) => (t?.id === null ? null : t));
+            }}
+            onDrop={(e) => {
+              const src = e.dataTransfer.getData("hiroo/channel");
+              e.preventDefault();
+              e.stopPropagation();
+              setDragId(null);
+              setDropTarget(null);
+              if (src) handleDrop(src, null, "after");
+            }}
+            style={{
+              marginTop: 12, padding: dragId ? "18px 10px" : "10px 10px",
+              borderRadius: 8,
+              border: `2px dashed ${dropTarget?.id === null ? "var(--accent)" : "var(--line)"}`,
+              background: dropTarget?.id === null ? "rgba(124,92,255,0.15)" : "transparent",
+              color: dropTarget?.id === null ? "var(--accent)" : "var(--text-3)",
+              fontSize: 11, fontWeight: 600,
+              textAlign: "center", letterSpacing: 0.3,
+              textTransform: "uppercase",
+              opacity: dragId ? 1 : 0.35,
+              transition: "all 140ms",
+            }}
+          >
+            <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 6 }} />
+            {dragId ? "Вынести за пределы категории" : "Зона без категории"}
+          </div>
+        )}
       </div>
 
       <SearchBarButton />
@@ -647,24 +695,39 @@ function SidebarItem(props: SidebarItemProps) {
         }}
         onDragEnd={() => { props.setDragId(null); props.setDropTarget(null); }}
         onDragOver={(e) => {
+          // Fires only on gaps/header within the category — child items call
+          // stopPropagation so they override this when hovered directly.
           if (!e.dataTransfer.types.includes("hiroo/channel")) return;
           e.preventDefault();
           const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
           const y = e.clientY - r.top;
-          // Top 10px = before, bottom 10px = after, middle = into.
-          if (y < 10) props.setDropTarget({ id: ch.id, pos: "before" });
-          else if (y > r.height - 10) props.setDropTarget({ id: ch.id, pos: "after" });
+          // Top edge strip (~header area) → before. Bottom thin strip → after.
+          // Everything else → "into" (child area).
+          if (y < 14) props.setDropTarget({ id: ch.id, pos: "before" });
+          else if (y > r.height - 6) props.setDropTarget({ id: ch.id, pos: "after" });
           else props.setDropTarget({ id: ch.id, pos: "into" });
         }}
-        onDragLeave={() => props.setDropTarget(props.dropTarget?.id === ch.id ? null : props.dropTarget)}
+        onDragLeave={(e) => {
+          // Only clear when leaving the whole category, not when crossing
+          // between its children.
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          const inside =
+            e.clientX >= rect.left && e.clientX <= rect.right &&
+            e.clientY >= rect.top && e.clientY <= rect.bottom;
+          if (!inside && props.dropTarget?.id === ch.id) props.setDropTarget(null);
+        }}
         onDrop={(e) => {
           const src = e.dataTransfer.getData("hiroo/channel");
           e.preventDefault();
-          const pos = props.dropTarget?.id === ch.id ? props.dropTarget.pos : "after";
+          const pos = props.dropTarget?.id === ch.id ? props.dropTarget.pos : "into";
           props.setDropTarget(null);
           if (src && src !== ch.id) props.onDrop(src, ch.id, pos);
         }}
-        style={{ position: "relative", marginBottom: 2 }}
+        style={{
+          position: "relative", marginBottom: 2,
+          background: hl === "into" ? "rgba(124,92,255,0.06)" : "transparent",
+          borderRadius: 8,
+        }}
       >
         {hl === "before" && <DropLine />}
         <div
@@ -674,7 +737,6 @@ function SidebarItem(props: SidebarItemProps) {
             padding: "10px 6px 6px 4px",
             display: "flex", alignItems: "center", justifyContent: "space-between",
             color: "var(--text-2)", cursor: "pointer",
-            background: hl === "into" ? "rgba(124,92,255,0.15)" : "transparent",
             borderRadius: 6,
           }}
         >
@@ -726,6 +788,7 @@ function SidebarItem(props: SidebarItemProps) {
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes("hiroo/channel")) return;
         e.preventDefault();
+        e.stopPropagation();
         const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
         const y = e.clientY - r.top;
         props.setDropTarget({ id: ch.id, pos: y < r.height / 2 ? "before" : "after" });
@@ -734,6 +797,7 @@ function SidebarItem(props: SidebarItemProps) {
       onDrop={(e) => {
         const src = e.dataTransfer.getData("hiroo/channel");
         e.preventDefault();
+        e.stopPropagation();
         const pos = props.dropTarget?.id === ch.id ? props.dropTarget.pos : "after";
         props.setDropTarget(null);
         if (src && src !== ch.id) props.onDrop(src, ch.id, pos as any);

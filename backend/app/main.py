@@ -210,6 +210,8 @@ MIGRATIONS = [
     """,
     "CREATE INDEX IF NOT EXISTS ix_forum_replies_post_id ON forum_replies (post_id)",
     "CREATE INDEX IF NOT EXISTS ix_forum_replies_created_at ON forum_replies (created_at)",
+    # Per-user sort order in the server rail (distinct for each member).
+    "ALTER TABLE server_members ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0",
 ]
 
 
