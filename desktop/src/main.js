@@ -8,7 +8,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
-const ptt = require("./ptt");
+const globalKeys = require("./globalKeys");
 
 // Squirrel (Windows installer) needs this to not launch windows during install.
 if (require("electron-squirrel-startup")) {
@@ -225,49 +225,46 @@ ipcMain.handle("hiroo:version", () => app.getVersion());
 
 // ── Global hotkeys ────────────────────────────────────────────────────
 //
-// Renderer calls `hiroo:hotkeys:set` with an array of { id, accelerator }.
-// We diff against the currently registered bindings, unregister the old
-// ones, register the new ones, and emit `hiroo:hotkey` with the action id
-// back to the renderer when a shortcut fires. Invalid accelerators are
-// silently skipped and reported back per-id.
+// Все биндинги идут через uiohook-napi (пассивная подписка на клавиатуру
+// ОС — не блокирует нажатие для фокусного приложения). Это важное отличие
+// от `globalShortcut.register`, который съедает клавишу системно.
+//
+// Отдельно от tap-хоткеев есть PTT-режим: он шлёт рендеру "down"/"up"
+// через канал `hiroo:ptt`, и фронт сам управляет удержанием.
 
-/** @type {Map<string, string>} action id → currently registered accelerator */
-const registeredHotkeys = new Map();
+/** @type {Set<string>} — какие action id сейчас зарегистрированы в globalKeys */
+const registeredHotkeyIds = new Set();
 
 function setHotkey(id, accelerator) {
-  // PTT — отдельная дорожка через uiohook (настоящий keyup).
-  if (id === "push_to_talk") {
-    const res = ptt.setPushToTalk(accelerator || null, {
-      onDown: () => mainWindow?.webContents.send("hiroo:ptt", "down"),
-      onUp:   () => mainWindow?.webContents.send("hiroo:ptt", "up"),
-    });
-    if (res.ok) {
-      if (accelerator) registeredHotkeys.set(id, accelerator);
-      else registeredHotkeys.delete(id);
-    }
+  // Снятие — во всех случаях одинаково.
+  if (!accelerator) {
+    const res = globalKeys.setBinding(id, null);
+    registeredHotkeyIds.delete(id);
     return res;
   }
 
-  const prev = registeredHotkeys.get(id);
-  if (prev) {
-    try { globalShortcut.unregister(prev); } catch {}
-    registeredHotkeys.delete(id);
+  if (id === "push_to_talk") {
+    const res = globalKeys.setBinding(id, accelerator, {
+      mode: "hold",
+      onDown: () => mainWindow?.webContents.send("hiroo:ptt", "down"),
+      onUp:   () => mainWindow?.webContents.send("hiroo:ptt", "up"),
+    });
+    if (res.ok) registeredHotkeyIds.add(id);
+    return res;
   }
-  if (!accelerator) return { ok: true };
-  try {
-    const ok = globalShortcut.register(accelerator, () => {
+
+  const res = globalKeys.setBinding(id, accelerator, {
+    mode: "tap",
+    onDown: () => {
       mainWindow?.webContents.send("hiroo:hotkey", id);
       if (id === "toggle_window") {
         if (mainWindow?.isVisible() && mainWindow.isFocused()) mainWindow.hide();
         else showMain();
       }
-    });
-    if (!ok) return { ok: false, error: "register failed" };
-    registeredHotkeys.set(id, accelerator);
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
-  }
+    },
+  });
+  if (res.ok) registeredHotkeyIds.add(id);
+  return res;
 }
 
 ipcMain.handle("hiroo:hotkeys:set", (_e, bindings) => {
@@ -278,15 +275,15 @@ ipcMain.handle("hiroo:hotkeys:set", (_e, bindings) => {
     seen.add(b.id);
     results[b.id] = setHotkey(b.id, typeof b.accelerator === "string" ? b.accelerator : null);
   }
-  // Unregister any previous bindings that aren't in the new list.
-  for (const id of Array.from(registeredHotkeys.keys())) {
+  // Снять те биндинги, которых нет в новом списке.
+  for (const id of Array.from(registeredHotkeyIds)) {
     if (!seen.has(id)) setHotkey(id, null);
   }
   return results;
 });
 
 ipcMain.handle("hiroo:hotkeys:clear", () => {
-  for (const id of Array.from(registeredHotkeys.keys())) setHotkey(id, null);
+  for (const id of Array.from(registeredHotkeyIds)) setHotkey(id, null);
   return { ok: true };
 });
 
@@ -329,7 +326,7 @@ app.on("activate", () => {
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
-  try { ptt.stop(); } catch {}
+  try { globalKeys.stop(); } catch {}
 });
 
 

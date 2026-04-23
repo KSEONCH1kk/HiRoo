@@ -105,6 +105,10 @@ MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_sound BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_desktop BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_level VARCHAR(16) NOT NULL DEFAULT 'mentions'",
+    # Тема, акцент, хоткеи — синхронизируются между устройствами.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS theme VARCHAR(16) NOT NULL DEFAULT 'dark'",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS accent_color VARCHAR(9) NOT NULL DEFAULT '#7c5cff'",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS hotkeys JSONB",
     """
     CREATE TABLE IF NOT EXISTS sessions (
         id UUID PRIMARY KEY,

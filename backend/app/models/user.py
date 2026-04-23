@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, Boolean, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
 
 
@@ -36,6 +36,14 @@ class User(Base):
     notif_desktop: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # "all" (every message) | "mentions" (only @user) | "none"
     notif_level: Mapped[str] = mapped_column(String(16), default="mentions", nullable=False)
+
+    # ── Appearance / input ────────────────────────────────────────────
+    # "dark" | "light"
+    theme: Mapped[str] = mapped_column(String(16), default="dark", nullable=False)
+    # Hex цвет, включая '#'.
+    accent_color: Mapped[str] = mapped_column(String(9), default="#7c5cff", nullable=False)
+    # Хоткеи десктоп-клиента: { "toggle_mute": "CommandOrControl+Shift+M", ... }
+    hotkeys: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Which server's clan tag to display next to this user's name (nullable
     # = no tag). Server is expected to have tag_label/tag_icon set and the

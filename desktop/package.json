@@ -1,6 +1,6 @@
 {
   "name": "hiroo-desktop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "HiRoo desktop client for Windows / macOS / Linux",
   "main": "src/main.js",
   "scripts": {

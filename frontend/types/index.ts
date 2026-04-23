@@ -27,6 +27,9 @@ export interface User {
   notif_sound?: boolean;
   notif_desktop?: boolean;
   notif_level?: "all" | "mentions" | "none";
+  theme?: "dark" | "light";
+  accent_color?: string;
+  hotkeys?: Record<string, string> | null;
   tag?: ClanTag | null;
 }
 

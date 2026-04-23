@@ -89,9 +89,11 @@ export function HotkeysSettings() {
       </div>
 
       <div style={{ fontSize: 12, color: "var(--text-3)", lineHeight: 1.55 }}>
-        Подсказка: нажмите на поле рядом с действием и зажмите нужную комбинацию.
-        Push-to-Talk работает как настоящее удержание — микрофон открыт только
-        пока клавиша зажата, в любом окне и даже если HiRoo свёрнут.
+        Подсказка: нажмите на поле рядом с действием и зажмите нужную
+        комбинацию — поддерживается любая связка модификаторов и клавиши.
+        HiRoo только слушает клавиатуру — нажатие продолжает доходить до
+        активного окна (ничего не блокируем). Push-to-Talk работает как
+        настоящее удержание, даже если HiRoo свёрнут.
       </div>
     </div>
   );
@@ -242,13 +244,55 @@ function eventToAccelerator(e: KeyboardEvent): string | null {
   return parts.join("+");
 }
 
+/**
+ * Нормализация клавиши. Используем в первую очередь `e.code` — это
+ * физическая клавиша на клавиатуре ("KeyA", "Digit1", "Semicolon"),
+ * независимая от раскладки. Иначе нажатие `М` на русской раскладке
+ * сохранилось бы как `М` и uiohook его не распознал бы.
+ */
 function normalizeKey(e: KeyboardEvent): string | null {
+  const code = e.code || "";
+  // Буквы
+  const letter = /^Key([A-Z])$/.exec(code);
+  if (letter) return letter[1];
+  // Цифры верхнего ряда
+  const digit = /^Digit([0-9])$/.exec(code);
+  if (digit) return digit[1];
+  // Нампад: цифры и действия
+  const numpadDigit = /^Numpad([0-9])$/.exec(code);
+  if (numpadDigit) return `num${numpadDigit[1]}`;
+  // F-ряд
+  const fn = /^F(\d{1,2})$/.exec(code);
+  if (fn) return `F${fn[1]}`;
+  // Именованные клавиши (по `e.code`)
+  const byCode: Record<string, string> = {
+    Space: "Space",
+    Enter: "Enter", NumpadEnter: "Enter",
+    Escape: "Esc",
+    Tab: "Tab",
+    Backspace: "Backspace",
+    Delete: "Delete",
+    Insert: "Insert",
+    Home: "Home", End: "End",
+    PageUp: "PageUp", PageDown: "PageDown",
+    ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
+    PrintScreen: "PrintScreen",
+    CapsLock: "CapsLock",
+    NumLock: "NumLock", ScrollLock: "ScrollLock",
+    Minus: "-", Equal: "=",
+    BracketLeft: "[", BracketRight: "]",
+    Backslash: "\\", Slash: "/",
+    Semicolon: ";", Quote: "'", Backquote: "`",
+    Comma: ",", Period: ".",
+  };
+  if (byCode[code]) return byCode[code];
+
+  // Fallback на e.key: для пользователей, у которых KeyboardEvent.code
+  // не выставлен (некоторые виртуальные/remote-клавиатуры).
   const raw = e.key;
   if (!raw) return null;
   if (raw === " ") return "Space";
   if (raw.length === 1) return raw.toUpperCase();
-  // e.key — это уже "F1", "ArrowUp", "Enter" и т.п. Accelerator в Electron
-  // чувствителен к регистру ("F1", "Tab", "Backspace", "Up/Down/Left/Right").
   const map: Record<string, string> = {
     ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
     Escape: "Esc",

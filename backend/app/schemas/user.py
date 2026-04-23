@@ -97,6 +97,10 @@ class UserResponse(BaseModel):
     notif_sound: bool = True
     notif_desktop: bool = True
     notif_level: str = "mentions"
+    # Appearance / input
+    theme: str = "dark"
+    accent_color: str = "#7c5cff"
+    hotkeys: dict[str, str] | None = None
     tag: ClanTag | None = None
 
 
@@ -107,6 +111,36 @@ class PreferencesUpdate(BaseModel):
     notif_sound: bool | None = None
     notif_desktop: bool | None = None
     notif_level: str | None = Field(None, pattern=r"^(all|mentions|none)$")
+    theme: str | None = Field(None, pattern=r"^(dark|light)$")
+    # Хекс "#RRGGBB" или "#RRGGBBAA".
+    accent_color: str | None = Field(None, pattern=r"^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
+    # Словарь action_id → accelerator-строка ("CommandOrControl+Shift+M").
+    # Пустая строка / null / отсутствие ключа = action не назначен.
+    hotkeys: dict[str, str] | None = None
+
+    @field_validator("hotkeys")
+    @classmethod
+    def _validate_hotkeys(cls, v):
+        if v is None:
+            return v
+        ALLOWED = {
+            "toggle_mute", "toggle_deafen", "push_to_talk",
+            "toggle_video", "toggle_screen_share", "disconnect",
+            "toggle_window",
+        }
+        out: dict[str, str] = {}
+        for k, acc in v.items():
+            if k not in ALLOWED:
+                # Молча отбрасываем неизвестные действия, чтобы новый
+                # клиент не падал на старом backend и наоборот.
+                continue
+            if not isinstance(acc, str):
+                continue
+            acc = acc.strip()
+            if not acc or len(acc) > 64:
+                continue
+            out[k] = acc
+        return out
 
 
 class UserPublic(BaseModel):

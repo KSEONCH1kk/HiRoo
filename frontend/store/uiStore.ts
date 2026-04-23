@@ -54,6 +54,16 @@ export const useUIStore = create<UIState>()(
       setIncomingCall: (incomingCall) => set({ incomingCall }),
       setPreviewServerId: (previewServerId) => set({ previewServerId }),
     }),
-    { name: "hiroo-ui", partialState: (s: UIState) => ({ theme: s.theme, accent: s.accent }) } as any,
+    {
+      name: "hiroo-ui",
+      partialize: (s: UIState) => ({ theme: s.theme, accent: s.accent }) as any,
+      onRehydrateStorage: () => (state: UIState | undefined) => {
+        if (typeof document === "undefined" || !state) return;
+        try {
+          document.documentElement.setAttribute("data-theme", state.theme);
+          document.documentElement.style.setProperty("--accent", state.accent);
+        } catch {}
+      },
+    } as any,
   ),
 );

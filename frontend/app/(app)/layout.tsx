@@ -9,6 +9,7 @@ import { useSocket } from "@/hooks/useSocket";
 import { useE2EEInit } from "@/hooks/useE2EEInit";
 import { useMobileIntegration } from "@/hooks/useMobileIntegration";
 import { useHotkeys } from "@/hooks/useHotkeys";
+import { usePrefsSync } from "@/hooks/usePrefsSync";
 import { useBlocksStore } from "@/store/blocksStore";
 import { serversApi, channelsApi } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
@@ -50,6 +51,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   useE2EEInit();
   useMobileIntegration();
   useHotkeys();
+  usePrefsSync();
   useEffect(() => { useBlocksStore.getState().refresh(); }, []);
 
   // Auto-close drawers on navigation (mobile UX)
