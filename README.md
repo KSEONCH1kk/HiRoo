@@ -33,9 +33,9 @@ API: http://localhost:8000/docs
 
 ## Переменные окружения
 
-Все задаются в `docker-compose.yml`.
+Все задаются в `docker-compose.yml` / `docker-compose.prod.yml` или `.env`.
 
-### Backend
+### Backend — базовое
 
 | Переменная | Значение |
 |------------|----------|
@@ -48,12 +48,48 @@ API: http://localhost:8000/docs
 | `LIVEKIT_API_KEY` | `devkey` |
 | `LIVEKIT_API_SECRET` | `openssl rand -hex 32` (должен совпадать с `livekit.yaml`) |
 
+### Backend — безопасность и защита от ботов
+
+Эти переменные контролируют уровни, скопированные с Discord: client
+fingerprint (`X-Super-Properties`), капча (`hCaptcha`) и минимальный
+допустимый билд клиента. В dev всё выключено, в prod — включаем.
+
+| Переменная | Значение |
+|------------|----------|
+| `HIROO_ENFORCE_SUPER_PROPS` | `1` — требовать `X-Super-Properties` на /auth/login и /auth/register. `0` — пропускать (dev). |
+| `HIROO_MIN_CLIENT_BUILD` | Минимальный `build_number` клиента. Поднимать при выкатке, чтобы заставить старых обновиться. |
+| `HIROO_ENFORCE_CAPTCHA` | `1` — капча обязательна. `0` — пропускаем (dev, тестовая пара hCaptcha). |
+| `HCAPTCHA_SITEKEY` | Публичный sitekey с [hcaptcha.com](https://dashboard.hcaptcha.com/). |
+| `HCAPTCHA_SECRET` | Приватный secret с того же дашборда. |
+
+### Backend — десктоп-апдейтер
+
+Электрон-клиент тянет `GET /api/desktop/latest` во время сплэша и
+сравнивает semver. Если `HIROO_DESKTOP_VERSION` новее — качает asset под
+свою `process.platform-process.arch` и запускает установщик.
+
+| Переменная | Значение |
+|------------|----------|
+| `HIROO_DESKTOP_VERSION` | Новая версия, например `1.0.1`. |
+| `HIROO_DESKTOP_NOTES` | Текст release notes (отображается на сплэше). |
+| `HIROO_DESKTOP_MANDATORY` | `1` — запретить оставаться на старом билде. |
+| `HIROO_DESKTOP_WIN_X64_URL` | `https://yourdomain.tld/downloads/HiRoo-1.0.1-win-x64.exe` |
+| `HIROO_DESKTOP_WIN_ARM64_URL` | — аналогично, для ARM64 Windows |
+| `HIROO_DESKTOP_MAC_X64_URL` | `HiRoo-1.0.1-mac-x64.dmg` |
+| `HIROO_DESKTOP_MAC_ARM64_URL` | `HiRoo-1.0.1-mac-arm64.dmg` |
+| `HIROO_DESKTOP_LINUX_X64_URL` | `HiRoo-1.0.1-linux-x64.deb` |
+
+Подробности по процессу выкатки и какие файлы класть на сервер — в
+[`desktop/README.md`](desktop/README.md).
+
 ### Frontend (инлайнятся в bundle при билде!)
 
 | Переменная | Значение |
 |------------|----------|
 | `NEXT_PUBLIC_API_URL` | `https://yourdomain.tld` |
 | `NEXT_PUBLIC_WS_URL` | `wss://yourdomain.tld` |
+| `NEXT_PUBLIC_APP_VERSION` | Например `1.0.1`. Летит в `X-Super-Properties.client_version`. |
+| `NEXT_PUBLIC_APP_BUILD` | Число, например `7`. Летит в `X-Super-Properties.build_number`. Backend проверит `build_number >= HIROO_MIN_CLIENT_BUILD`. |
 
 **Важно:** переменные Next.js — compile-time. После правки: `docker compose build --no-cache frontend`.
 
@@ -233,6 +269,53 @@ docker compose up -d
 
 Только бэк рестартануть без сборки: `docker compose restart backend`.
 
+## Выкатка обновления десктоп-клиента
+
+1. Поднять `"version"` в `desktop/package.json`.
+2. На каждой ОС: `cd desktop && npm run make` — получите инсталлеры в `out/make/...`.
+3. Залить артефакты на сервер по путям, указанным в env:
+   ```bash
+   scp out/make/squirrel.windows/x64/HiRoo-1.0.1\ Setup.exe \
+       root@yourdomain.tld:/var/www/hiroo-downloads/HiRoo-1.0.1-win-x64.exe
+   ```
+   (Nginx уже настроен раздавать `/downloads/` с `Cache-Control: immutable`.)
+4. Обновить env backend (`HIROO_DESKTOP_VERSION`, `HIROO_DESKTOP_*_URL`).
+5. `docker compose up -d --force-recreate backend`.
+6. Проверить: `curl https://yourdomain.tld/api/desktop/latest`.
+
+Клиенты сами подхватят при следующем запуске и обновятся прямо на
+сплэш-экране.
+
+## Синхронизация настроек пользователя
+
+Тема (`dark`/`light`), акцентный цвет, привязки глобальных хоткеев и
+флаг `science_enabled` хранятся в `users` на бэке и едут между
+устройствами. Миграции `ALTER TABLE users ADD COLUMN IF NOT EXISTS ...`
+включены в startup-список в `backend/app/main.py` — дополнительных шагов
+при апдейте не нужно.
+
+## Science (клиентская телеметрия)
+
+Батчинг событий в `/api/science` по модели Discord Science. Клиентский
+SDK — `frontend/lib/science.ts`; эндпоинт — `backend/app/routers/science.py`.
+Пользователь может выключить через Settings → Конфиденциальность → «Делиться
+анонимной статистикой». События никогда не содержат текстов сообщений,
+никнеймов или поисковых запросов.
+
+Таблица `telemetry_events` заводится автоматически при первом запуске
+backend'а.
+
+## CSP и hCaptcha
+
+CSP задаётся в `frontend/next.config.mjs`. Уже разрешены:
+- hCaptcha: `https://hcaptcha.com https://*.hcaptcha.com` в `script-src`,
+  `frame-src`, `style-src`, `connect-src`.
+- LiveKit: `*.livekit.cloud` / `wss://*.livekit.cloud` в `connect-src`.
+- YouTube: `youtube-nocookie.com` / `youtube.com` в `frame-src`.
+
+Если добавляете новый внешний сервис — обновите CSP в `next.config.mjs`
+и пересоберите фронт.
+
 ## Структура проекта
 
 ```
@@ -273,6 +356,11 @@ HiRoo/
 - Друзья: заявки, блокировка, DM в один клик
 - Инвайты: `/invite/{code}` с авто-редиректом после логина
 - Полные настройки сервера (обзор/роли/каналы/участники/приглашения)
+- Глобальные хоткеи в десктоп-клиенте (Electron + `uiohook-napi` для настоящего PTT)
+- Синхронизация темы / акцентного цвета / хоткеев между устройствами
+- Авто-обновление десктопа: проверка во время сплэша, silent-install на Windows
+- Защита от скриптовых ботов: hCaptcha, X-Super-Properties fingerprint, разделение user/bot токенов
+- Клиентская телеметрия «Science» с opt-out в настройках
 
 ## Troubleshooting
 
