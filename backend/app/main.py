@@ -242,6 +242,13 @@ MIGRATIONS = [
     "ALTER TABLE servers ADD COLUMN IF NOT EXISTS auto_mod_mention_threshold INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE servers ADD COLUMN IF NOT EXISTS auto_mod_action VARCHAR(16) NOT NULL DEFAULT 'delete'",
     "ALTER TABLE servers ADD COLUMN IF NOT EXISTS auto_mod_timeout_seconds INTEGER NOT NULL DEFAULT 300",
+    # Pinned messages — channel and DM
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP WITH TIME ZONE",
+    "ALTER TABLE dm_messages ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE dm_messages ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP WITH TIME ZONE",
+    "CREATE INDEX IF NOT EXISTS ix_messages_pinned ON messages (channel_id, pinned_at DESC) WHERE is_pinned",
+    "CREATE INDEX IF NOT EXISTS ix_dm_messages_pinned ON dm_messages (dm_id, pinned_at DESC) WHERE is_pinned",
 ]
 
 

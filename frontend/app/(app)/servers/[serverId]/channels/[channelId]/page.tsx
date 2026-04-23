@@ -11,6 +11,7 @@ import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
 import { useUnreadStore } from "@/store/unreadStore";
 import { MembersPanel } from "@/components/chat/MembersPanel";
+import { PinnedDropdown } from "@/components/chat/PinnedDropdown";
 
 interface Params { serverId: string; channelId: string; }
 
@@ -81,7 +82,8 @@ export default function ChannelPage({ params }: { params: Params }) {
               <span style={{ fontSize: 13, color: "var(--text-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{channel.topic}</span>
             </>
           )}
-          <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 4, alignItems: "center" }}>
+            <PinnedDropdown kind="channel" id={channelId} />
             <button
               onClick={() => setSearchOpen(true)}
               title="Поиск сообщений"

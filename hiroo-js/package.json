@@ -1,0 +1,24 @@
+{
+  "name": "hiroo",
+  "version": "0.1.0",
+  "description": "Official JavaScript client for the HiRoo bot gateway and REST API.",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node examples/echo_bot.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
+  "optionalDependencies": {
+    "@livekit/rtc-node": "^0.13.0"
+  },
+  "license": "MIT"
+}

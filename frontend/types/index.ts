@@ -128,6 +128,8 @@ export interface Message {
   reply_to: ReplyPreview | null;
   edited_at: string | null;
   is_deleted: boolean;
+  is_pinned?: boolean;
+  pinned_at?: string | null;
   created_at: string;
   author: UserPublic | null;
   reactions: Reaction[];
@@ -167,6 +169,8 @@ export interface DMMessageType {
   reply_to: ReplyPreview | null;
   edited_at: string | null;
   is_deleted: boolean;
+  is_pinned?: boolean;
+  pinned_at?: string | null;
   created_at: string;
   author: UserPublic | null;
   reactions: Reaction[];

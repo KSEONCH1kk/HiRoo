@@ -8,6 +8,7 @@ import { ProxiedVideo } from "./ProxiedVideo";
 import { CodeBlock } from "./CodeBlock";
 import { Markdown } from "./Markdown";
 import { EmbedCard } from "./EmbedCard";
+import { parseForwardHeader } from "@/lib/forward";
 import type { Embed } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -22,6 +23,34 @@ const AUDIO_EXT = /\.(mp3|ogg|wav|m4a|weba)(\?.*)?$/i;
 const VOICE_MESSAGE_RE = /\/voice-message-[^/]+\.(webm|weba|m4a|ogg|mp3)(\?.*)?$/i;
 
 const CODE_BLOCK_RE = /```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g;
+
+function ForwardBadge({ name, username }: { name: string; username?: string }) {
+  return (
+    <div style={{
+      borderLeft: "3px solid var(--accent)",
+      paddingLeft: 10,
+      margin: "2px 0 4px",
+      display: "flex", flexDirection: "column", gap: 1,
+    }}>
+      <div style={{
+        display: "inline-flex", alignItems: "center", gap: 5,
+        fontSize: 10.5, color: "var(--accent)", fontWeight: 700,
+        textTransform: "uppercase", letterSpacing: 0.6,
+      }}>
+        <i className="fa-solid fa-share" style={{ fontSize: 9 }} />
+        Переслано от
+      </div>
+      <div style={{ fontSize: 13, color: "var(--text-1)", fontWeight: 600 }}>
+        {name}
+        {username && (
+          <span style={{ color: "var(--text-3)", fontWeight: 400, marginLeft: 5 }}>
+            @{username}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function absolutize(url: string): string {
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
@@ -73,7 +102,8 @@ function extractProxiedYouTube(content: string): { text: string; proxyUrls: stri
 }
 
 export function MessageContent({ content, embeds }: Props) {
-  const { text: strippedContent, proxyUrls } = extractProxiedYouTube(content);
+  const { meta: forwardMeta, rest: afterForward } = parseForwardHeader(content);
+  const { text: strippedContent, proxyUrls } = extractProxiedYouTube(afterForward);
   const lines = strippedContent.split("\n");
   const textLines: string[] = [];
   const attachments: string[] = [];
@@ -89,6 +119,7 @@ export function MessageContent({ content, embeds }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {forwardMeta && <ForwardBadge name={forwardMeta.n} username={forwardMeta.u} />}
       {segments.map((seg, i) =>
         seg.type === "code"
           ? <CodeBlock key={`cb-${i}`} code={seg.content} lang={seg.lang} />

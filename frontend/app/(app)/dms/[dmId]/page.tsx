@@ -6,6 +6,7 @@ import { DMMessageList } from "@/components/dm/DMMessageList";
 import { DMComposer } from "@/components/dm/DMComposer";
 import { GroupDMSettings } from "@/components/dm/GroupDMSettings";
 import { MessageSearchModal } from "@/components/chat/MessageSearchModal";
+import { PinnedDropdown } from "@/components/chat/PinnedDropdown";
 import { Avatar } from "@/components/ui/Avatar";
 import { ClanTag } from "@/components/ui/ClanTag";
 import { DMMemberPill } from "@/components/dm/DMMemberPill";
@@ -156,6 +157,7 @@ export default function DMPage({ params }: { params: { dmId: string } }) {
           >
             <i className="fa-solid fa-video" style={{ fontSize: 14 }} />
           </button>
+          <PinnedDropdown kind="dm" id={dmId} />
           <button
             onClick={() => setSearchOpen(true)}
             title="Поиск сообщений"

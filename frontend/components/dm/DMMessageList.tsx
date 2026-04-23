@@ -10,6 +10,7 @@ import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { FailedMessageList } from "@/components/chat/FailedMessageList";
 import { EmojiPicker } from "@/components/ui/EmojiPicker";
 import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
+import { ForwardModal } from "@/components/modals/ForwardModal";
 import { formatMessageTime } from "@/lib/utils";
 import { isEncrypted, decryptDirect, decryptGroup, DIRECT_PREFIX, GROUP_PREFIX } from "@/lib/e2ee";
 import type { DMMessageType } from "@/types";
@@ -87,6 +88,15 @@ export function DMMessageList({ dmId }: Props) {
     try { await dmsApi.delete(dmId, msgId); } catch {}
   }, [dmId]);
 
+  const handlePin = useCallback(async (msgId: string, pin: boolean) => {
+    try {
+      if (pin) await dmsApi.pinMessage(dmId, msgId);
+      else await dmsApi.unpinMessage(dmId, msgId);
+    } catch (e: any) {
+      alert(e?.response?.data?.detail || "Ошибка");
+    }
+  }, [dmId]);
+
   return (
     <>
       <div ref={containerRef} onScroll={handleScroll} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 2 }}>
@@ -110,6 +120,7 @@ export function DMMessageList({ dmId }: Props) {
               onSubmitEdit={handleEdit}
               onDelete={handleDelete}
               onReact={handleReact}
+              onPin={handlePin}
             />
           );
         })}
@@ -131,16 +142,18 @@ interface ItemProps {
   onSubmitEdit: (id: string, content: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onReact: (id: string, emoji: string) => Promise<void>;
+  onPin: (id: string, pin: boolean) => Promise<void>;
 }
 
 const QUICK = ["👍", "❤️", "😂", "🔥"];
 
-function DMMessageItem({ msg, grouped, isMe, editing, onStartEdit, onCancelEdit, onSubmitEdit, onDelete, onReact }: ItemProps) {
+function DMMessageItem({ msg, grouped, isMe, editing, onStartEdit, onCancelEdit, onSubmitEdit, onDelete, onReact, onPin }: ItemProps) {
   const [hover, setHover] = useState(false);
   const [editValue, setEditValue] = useState(msg.content);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [bodyCtx, setBodyCtx] = useState<{ x: number; y: number } | null>(null);
   const [pickerAt, setPickerAt] = useState<{ x: number; y: number } | null>(null);
+  const [forwardOpen, setForwardOpen] = useState(false);
   const startReply = useChatStore((s) => s.startReply);
 
   useEffect(() => { if (editing) setEditValue(msg.content); }, [editing, msg.content]);
@@ -282,6 +295,9 @@ function DMMessageItem({ msg, grouped, isMe, editing, onStartEdit, onCancelEdit,
           <button onClick={beginReply} title="Ответить" style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-2)", fontSize: 12 }}>
             <i className="fa-solid fa-reply" />
           </button>
+          <button onClick={() => setForwardOpen(true)} title="Переслать" style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-2)", fontSize: 12 }}>
+            <i className="fa-solid fa-share" />
+          </button>
           {isMe && <button onClick={onStartEdit} title="Редактировать" style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-2)", fontSize: 12 }}>
             <i className="fa-solid fa-pen" />
           </button>}
@@ -351,6 +367,12 @@ function DMMessageItem({ msg, grouped, isMe, editing, onStartEdit, onCancelEdit,
             onClick: () => { const p = bodyCtx; setBodyCtx(null); if (p) setPickerAt(p); },
           });
           items.push({ icon: "fa-reply", label: "Ответить", onClick: beginReply });
+          items.push({ icon: "fa-share", label: "Переслать…", onClick: () => setForwardOpen(true) });
+          items.push({
+            icon: "fa-thumbtack",
+            label: msg.is_pinned ? "Открепить сообщение" : "Закрепить сообщение",
+            onClick: () => onPin(msg.id, !msg.is_pinned),
+          });
           if (isMe) {
             items.push({ icon: "fa-pen", label: "Редактировать", onClick: onStartEdit });
           }
@@ -382,6 +404,9 @@ function DMMessageItem({ msg, grouped, isMe, editing, onStartEdit, onCancelEdit,
             onClose={() => setPickerAt(null)}
           />
         </div>
+      )}
+      {forwardOpen && (
+        <ForwardModal message={msg} onClose={() => setForwardOpen(false)} />
       )}
     </div>
   );

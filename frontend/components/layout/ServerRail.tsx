@@ -9,6 +9,7 @@ import { serversApi, dmsApi } from "@/lib/api";
 import { useServerStore } from "@/store/serverStore";
 import { useUnreadStore } from "@/store/unreadStore";
 import { useAuthStore } from "@/store/authStore";
+import { useMuteStore, MUTE_DURATIONS, isMuted as isMutedHelper } from "@/store/muteStore";
 import { dmTitle } from "@/lib/dm";
 import type { Server, DirectMessage } from "@/types";
 
@@ -67,6 +68,9 @@ export function ServerRail({ servers, activeServerId, activeMode, onPickServer, 
   const mentionsByServer = useUnreadStore((s) => s.mentionsByServer);
   const unreadByDm = useUnreadStore((s) => s.unreadByDm);
   const { user } = useAuthStore();
+  const muteMap = useMuteStore((s) => s.map);
+  // Re-evaluate isMutedHelper when `map` or the 30s tick changes.
+  useMuteStore((s) => s._v); // eslint-disable-line @typescript-eslint/no-unused-expressions
 
   const hasUnread = Object.keys(unreadByDm).length > 0;
   const { data: dms = [] } = useQuery<DirectMessage[]>({
@@ -77,7 +81,7 @@ export function ServerRail({ servers, activeServerId, activeMode, onPickServer, 
   });
 
   const unreadDms = dms
-    .filter((d) => (unreadByDm[d.id] ?? 0) > 0)
+    .filter((d) => (unreadByDm[d.id] ?? 0) > 0 && !isMutedHelper(`dm:${d.id}`))
     .map((d) => {
       const other = d.participants.find((p) => p.user.id !== user?.id) ?? d.participants[0];
       return { dm: d, other, count: unreadByDm[d.id] };
@@ -92,14 +96,30 @@ export function ServerRail({ servers, activeServerId, activeMode, onPickServer, 
     },
   });
 
-  const buildMenu = (server: Server): MenuItem[] => [
-    { icon: "fa-hashtag", label: "Открыть сервер", onClick: () => onPickServer(server.id) },
-    { icon: "fa-gear", label: "Настройки сервера", onClick: () => router.push(`/servers/${server.id}/settings`) },
-    { icon: "fa-user-plus", label: "Пригласить людей", onClick: () => router.push(`/servers/${server.id}/settings/invites`) },
-    { icon: "fa-copy", label: "Скопировать ID", onClick: () => navigator.clipboard?.writeText(server.id) },
-    { separator: true, label: "" } as MenuItem,
-    { icon: "fa-right-from-bracket", label: "Покинуть сервер", onClick: () => { if (confirm(`Покинуть «${server.name}»?`)) leave.mutate(server.id); }, danger: true },
-  ];
+  const buildMenu = (server: Server): MenuItem[] => {
+    const key = `server:${server.id}`;
+    const muted = isMutedHelper(key);
+    const muteItem: MenuItem = muted
+      ? { icon: "fa-bell", label: "Включить уведомления", onClick: () => useMuteStore.getState().unmute(key) }
+      : {
+          icon: "fa-bell-slash",
+          label: "Заглушить сервер",
+          submenu: MUTE_DURATIONS.map((d) => ({
+            icon: d.ms === null ? "fa-volume-xmark" : "fa-clock",
+            label: d.label,
+            onClick: () => useMuteStore.getState().mute(key, d.ms),
+          })),
+        };
+    return [
+      { icon: "fa-hashtag", label: "Открыть сервер", onClick: () => onPickServer(server.id) },
+      { icon: "fa-gear", label: "Настройки сервера", onClick: () => router.push(`/servers/${server.id}/settings`) },
+      { icon: "fa-user-plus", label: "Пригласить людей", onClick: () => router.push(`/servers/${server.id}/settings/invites`) },
+      muteItem,
+      { icon: "fa-copy", label: "Скопировать ID", onClick: () => navigator.clipboard?.writeText(server.id) },
+      { separator: true, label: "" } as MenuItem,
+      { icon: "fa-right-from-bracket", label: "Покинуть сервер", onClick: () => { if (confirm(`Покинуть «${server.name}»?`)) leave.mutate(server.id); }, danger: true },
+    ];
+  };
 
   const pill = (
     id: string, label: string | React.ReactNode, active: boolean,
@@ -265,9 +285,21 @@ export function ServerRail({ servers, activeServerId, activeMode, onPickServer, 
                 ? <img src={resolveIcon(s.icon_url)} style={{ width: 44, height: 44, borderRadius: "inherit", objectFit: "cover" }} alt={s.name} />
                 : s.name.slice(0, 2).toUpperCase(),
               activeMode === "server" && activeServerId === s.id,
-              mentionsByServer[s.id] || undefined,
+              isMutedHelper(`server:${s.id}`) ? undefined : (mentionsByServer[s.id] || undefined),
               () => onPickServer(s.id),
               hueFromId(s.id),
+            )}
+            {isMutedHelper(`server:${s.id}`) && (
+              <div style={{
+                position: "absolute", right: 6, top: 4,
+                width: 14, height: 14, borderRadius: "50%",
+                background: "var(--bg-0)", color: "var(--text-3)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                pointerEvents: "none",
+                border: "1px solid var(--line)",
+              }}>
+                <i className="fa-solid fa-bell-slash" style={{ fontSize: 7 }} />
+              </div>
             )}
             {hl === "after" && <ServerDropLine />}
           </div>

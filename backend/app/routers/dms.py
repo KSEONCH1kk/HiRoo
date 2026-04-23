@@ -51,6 +51,8 @@ def _build_dm_response(msg: DMMessage, current_user_id: uuid.UUID) -> DMMessageR
         reply_to=reply_to,
         edited_at=msg.edited_at,
         is_deleted=msg.is_deleted,
+        is_pinned=getattr(msg, "is_pinned", False),
+        pinned_at=getattr(msg, "pinned_at", None),
         created_at=msg.created_at,
         author=author,
         reactions=list(reaction_map.values()),
@@ -625,3 +627,93 @@ async def kick_dm_member(
         dm_full = loaded.scalars().unique().one()
         payload = DMResponse.model_validate(dm_full, from_attributes=True).model_dump(mode="json")
         await manager.broadcast_to_users(remaining_ids, {"event": "dm_update", "data": payload})
+
+
+# ── Pinned messages ─────────────────────────────────────────────
+
+@router.put("/{dm_id}/messages/{msg_id}/pin", response_model=DMMessageResponse)
+async def pin_dm_message(
+    dm_id: uuid.UUID,
+    msg_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    await _require_dm_participant(dm_id, current_user.id, db)
+    result = await db.execute(
+        select(DMMessage)
+        .options(
+            selectinload(DMMessage.author),
+            selectinload(DMMessage.reactions),
+            selectinload(DMMessage.reply_to).selectinload(DMMessage.author),
+        )
+        .where(DMMessage.id == msg_id, DMMessage.dm_id == dm_id)
+    )
+    msg = result.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    if msg.is_deleted:
+        raise HTTPException(status_code=400, detail="Нельзя закрепить удалённое сообщение")
+    msg.is_pinned = True
+    msg.pinned_at = datetime.now(timezone.utc)
+    await db.flush()
+    parts = await db.execute(select(DMParticipant.user_id).where(DMParticipant.dm_id == dm_id))
+    part_ids = [str(r[0]) for r in parts.all()]
+    await manager.broadcast_to_users(part_ids, {
+        "event": "dm_message_pin",
+        "data": {"dm_id": str(dm_id), "message_id": str(msg_id), "is_pinned": True},
+    })
+    return _build_dm_response(msg, current_user.id)
+
+
+@router.delete("/{dm_id}/messages/{msg_id}/pin", response_model=DMMessageResponse)
+async def unpin_dm_message(
+    dm_id: uuid.UUID,
+    msg_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    await _require_dm_participant(dm_id, current_user.id, db)
+    result = await db.execute(
+        select(DMMessage)
+        .options(
+            selectinload(DMMessage.author),
+            selectinload(DMMessage.reactions),
+            selectinload(DMMessage.reply_to).selectinload(DMMessage.author),
+        )
+        .where(DMMessage.id == msg_id, DMMessage.dm_id == dm_id)
+    )
+    msg = result.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    msg.is_pinned = False
+    msg.pinned_at = None
+    await db.flush()
+    parts = await db.execute(select(DMParticipant.user_id).where(DMParticipant.dm_id == dm_id))
+    part_ids = [str(r[0]) for r in parts.all()]
+    await manager.broadcast_to_users(part_ids, {
+        "event": "dm_message_pin",
+        "data": {"dm_id": str(dm_id), "message_id": str(msg_id), "is_pinned": False},
+    })
+    return _build_dm_response(msg, current_user.id)
+
+
+@router.get("/{dm_id}/pinned", response_model=list[DMMessageResponse])
+async def list_dm_pinned(
+    dm_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    await _require_dm_participant(dm_id, current_user.id, db)
+    result = await db.execute(
+        select(DMMessage)
+        .options(
+            selectinload(DMMessage.author),
+            selectinload(DMMessage.reactions),
+            selectinload(DMMessage.reply_to).selectinload(DMMessage.author),
+        )
+        .where(DMMessage.dm_id == dm_id, DMMessage.is_pinned == True, DMMessage.is_deleted == False)
+        .order_by(DMMessage.pinned_at.desc())
+        .limit(50)
+    )
+    msgs = result.scalars().all()
+    return [_build_dm_response(m, current_user.id) for m in msgs]

@@ -109,6 +109,8 @@ class MessageResponse(BaseModel):
     reply_to: ReplyPreview | None = None
     edited_at: datetime | None
     is_deleted: bool
+    is_pinned: bool = False
+    pinned_at: datetime | None = None
     created_at: datetime
     author: UserPublic | None
     reactions: list[ReactionResponse] = []
@@ -135,6 +137,8 @@ class DMMessageResponse(BaseModel):
     reply_to: ReplyPreview | None = None
     edited_at: datetime | None
     is_deleted: bool
+    is_pinned: bool = False
+    pinned_at: datetime | None = None
     created_at: datetime
     author: UserPublic | None
     reactions: list[ReactionResponse] = []

@@ -148,7 +148,7 @@ export function VoiceParticipantMenu({ x, y, userId, displayName, extraItems, on
               return (
                 <div
                   key={`${it.label}-${i}`}
-                  onClick={() => { if (!it.disabled) { it.onClick(); onClose(); } }}
+                  onClick={() => { if (!it.disabled && it.onClick) { it.onClick(); onClose(); } }}
                   style={{
                     padding: "7px 10px", borderRadius: 6, cursor: it.disabled ? "default" : "pointer",
                     display: "flex", alignItems: "center", gap: 10,

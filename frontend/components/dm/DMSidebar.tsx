@@ -13,6 +13,7 @@ import { dmTitle, dmAvatarProps } from "@/lib/dm";
 import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
 import { useBlocksStore } from "@/store/blocksStore";
 import { useUIStore } from "@/store/uiStore";
+import { useMuteStore, MUTE_DURATIONS, isMuted as isMutedHelper } from "@/store/muteStore";
 import type { DirectMessage } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -28,6 +29,9 @@ export function DMSidebar() {
   const activeDmId = params?.dmId as string | undefined;
   const { user } = useAuthStore();
   const { unreadByDm } = useUnreadStore();
+  // Subscribe to mute map so DM rows re-render when a mute is toggled.
+  useMuteStore((s) => s.map);
+  useMuteStore((s) => s._v);
   const [modalOpen, setModalOpen] = useState(false);
   const [ctx, setCtx] = useState<{ x: number; y: number; dm: DirectMessage } | null>(null);
   const { block, unblock, isBlocked } = useBlocksStore();
@@ -75,6 +79,9 @@ export function DMSidebar() {
           const other = !dm.is_group
             ? dm.participants.find((p) => p.user.id !== user?.id)?.user
             : null;
+          const muted = isMutedHelper(`dm:${dm.id}`);
+          const unreadCount = unreadByDm[dm.id] ?? 0;
+          const showUnread = unreadCount > 0 && !muted;
           return (
             <div
               key={dm.id}
@@ -109,14 +116,16 @@ export function DMSidebar() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
                   fontSize: 13.5,
-                  fontWeight: (unreadByDm[dm.id] ?? 0) > 0 ? 700 : 500,
-                  color: isActive ? "var(--text-0)" : ((unreadByDm[dm.id] ?? 0) > 0 ? "var(--text-0)" : "var(--text-1)"),
+                  fontWeight: showUnread ? 700 : 500,
+                  color: isActive ? "var(--text-0)" : (showUnread ? "var(--text-0)" : "var(--text-1)"),
+                  opacity: muted ? 0.65 : 1,
                   display: "flex", alignItems: "center", gap: 6, minWidth: 0,
                 }}>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                     {title}
                   </span>
                   {other?.tag && <ClanTag tag={other.tag} />}
+                  {muted && <i className="fa-solid fa-bell-slash" style={{ fontSize: 10, color: "var(--text-3)", flexShrink: 0 }} />}
                 </div>
                 {dm.is_group && (
                   <div style={{ fontSize: 10.5, color: "var(--text-3)", fontFamily: "Geist Mono", marginTop: 1 }}>
@@ -124,9 +133,9 @@ export function DMSidebar() {
                   </div>
                 )}
               </div>
-              {(unreadByDm[dm.id] ?? 0) > 0 && (
+              {showUnread && (
                 <span style={{ minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9, background: "var(--danger)", color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {unreadByDm[dm.id] > 99 ? "99+" : unreadByDm[dm.id]}
+                  {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}
             </div>
@@ -149,6 +158,27 @@ export function DMSidebar() {
             danger: !blocked,
             onClick: () => (blocked ? unblock(other.id) : block(other.id)),
           });
+        }
+        {
+          const muteKey = `dm:${ctx.dm.id}`;
+          const muted = isMutedHelper(muteKey);
+          if (muted) {
+            items.push({
+              icon: "fa-bell",
+              label: "Включить уведомления",
+              onClick: () => useMuteStore.getState().unmute(muteKey),
+            });
+          } else {
+            items.push({
+              icon: "fa-bell-slash",
+              label: ctx.dm.is_group ? "Заглушить группу" : "Заглушить чат",
+              submenu: MUTE_DURATIONS.map((d) => ({
+                icon: d.ms === null ? "fa-volume-xmark" : "fa-clock",
+                label: d.label,
+                onClick: () => useMuteStore.getState().mute(muteKey, d.ms),
+              })),
+            });
+          }
         }
         items.push({ icon: "fa-copy", label: "Скопировать ID", onClick: () => navigator.clipboard?.writeText(ctx.dm.id) });
         items.push({

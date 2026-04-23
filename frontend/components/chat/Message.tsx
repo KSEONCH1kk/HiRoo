@@ -12,6 +12,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import type { Message as MessageType } from "@/types";
 import { MessageComponents } from "./MessageComponents";
 import { useBlocksStore } from "@/store/blocksStore";
+import { ForwardModal } from "@/components/modals/ForwardModal";
 
 interface Props {
   grouped?: boolean;
@@ -23,11 +24,12 @@ interface Props {
   onEdit?: (id: string, content: string) => void;
   onDelete?: (id: string) => void;
   onReact?: (id: string, emoji: string) => void;
+  onPin?: (id: string, pin: boolean) => void;
 }
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
-export function Message({ message: m, prevAuthorId, currentUserId, authorColor, canManageMessages, onEdit, onDelete, onReact }: Props) {
+export function Message({ message: m, prevAuthorId, currentUserId, authorColor, canManageMessages, onEdit, onDelete, onReact, onPin }: Props) {
   // Hooks — must always be called in the same order, so do NOT early-return
   // between them. The `blocked` placeholder is rendered via a conditional in
   // the JSX at the bottom.
@@ -37,6 +39,7 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
   const [bodyCtx, setBodyCtx] = useState<{ x: number; y: number } | null>(null);
   const [pickerAt, setPickerAt] = useState<{ x: number; y: number } | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [forwardOpen, setForwardOpen] = useState(false);
   const [revealBlocked, setRevealBlocked] = useState(false);
   const blocked = useBlocksStore((s) => m.author?.id ? s.blockedIds.has(m.author.id) : false);
   const { editingMessageId, startEdit, cancelEdit, startReply } = useChatStore();
@@ -220,6 +223,9 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
           <button onClick={beginReply} title="Ответить" style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-2)", fontSize: 12 }}>
             <i className="fa-solid fa-reply" />
           </button>
+          <button onClick={() => setForwardOpen(true)} title="Переслать" style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-2)", fontSize: 12 }}>
+            <i className="fa-solid fa-share" />
+          </button>
           {isMe && <button onClick={() => { startEdit(m.id); }} title="Редактировать" style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-2)", fontSize: 12 }}>
             <i className="fa-solid fa-pen" />
           </button>}
@@ -261,6 +267,11 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
                 {formatMessageTime(m.created_at)}
               </span>
               {m.edited_at && <span style={{ fontSize: 10, color: "var(--text-3)" }}>(ред.)</span>}
+              {m.is_pinned && (
+                <span title="Закреплено" style={{ color: "var(--accent)" }}>
+                  <i className="fa-solid fa-thumbtack" style={{ fontSize: 9 }} />
+                </span>
+              )}
             </div>
           )}
           {editing ? (
@@ -332,6 +343,14 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
             onClick: () => { const pt = bodyCtx; setBodyCtx(null); if (pt) setPickerAt(pt); },
           });
           items.push({ icon: "fa-reply", label: "Ответить", onClick: beginReply });
+          items.push({ icon: "fa-share", label: "Переслать…", onClick: () => setForwardOpen(true) });
+          if (canManageMessages && onPin) {
+            items.push({
+              icon: "fa-thumbtack",
+              label: m.is_pinned ? "Открепить сообщение" : "Закрепить сообщение",
+              onClick: () => onPin(m.id, !m.is_pinned),
+            });
+          }
           if (isMe) {
             items.push({ icon: "fa-pen", label: "Редактировать", onClick: () => startEdit(m.id) });
           }
@@ -363,6 +382,9 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
             onClose={() => setPickerAt(null)}
           />
         </div>
+      )}
+      {forwardOpen && (
+        <ForwardModal message={m} onClose={() => setForwardOpen(false)} />
       )}
     </div>
   );

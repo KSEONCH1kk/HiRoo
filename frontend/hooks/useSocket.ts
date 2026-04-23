@@ -269,6 +269,36 @@ export function useSocket() {
       qc.invalidateQueries({ queryKey: ["members", sid] });
     };
 
+    const onMessagePin = (payload: any) => {
+      const cid = payload?.channel_id;
+      const mid = payload?.message_id;
+      const pinned = !!payload?.is_pinned;
+      if (!cid || !mid) return;
+      qc.invalidateQueries({ queryKey: ["pinned", "channel", cid] });
+      // Update the single message in the chat store so the context menu
+      // toggles to the right label without waiting for a full refetch.
+      const { messages, updateMessage } = useChatStore.getState();
+      const list = messages[cid];
+      if (list) {
+        const m = list.find((x) => x.id === mid);
+        if (m) updateMessage({ ...m, is_pinned: pinned });
+      }
+    };
+
+    const onDMMessagePin = (payload: any) => {
+      const dmId = payload?.dm_id;
+      const mid = payload?.message_id;
+      const pinned = !!payload?.is_pinned;
+      if (!dmId || !mid) return;
+      qc.invalidateQueries({ queryKey: ["pinned", "dm", dmId] });
+      const { dmMessages, updateDMMessage } = useChatStore.getState();
+      const list = dmMessages[dmId];
+      if (list) {
+        const m = list.find((x) => x.id === mid);
+        if (m) updateDMMessage({ ...m, is_pinned: pinned } as any);
+      }
+    };
+
     const onRoleChange = (payload: any) => {
       // payload for role_create/role_update is the RoleResponse object with
       // server_id; role_delete/roles_reorder also include server_id.
@@ -381,6 +411,8 @@ export function useSocket() {
     s.on("member_banned", onMemberBanChange);
     s.on("member_unbanned", onMemberBanChange);
     s.on("member_timeout", onMemberTimeout);
+    s.on("message_pin", onMessagePin);
+    s.on("dm_message_pin", onDMMessagePin);
     s.on("role_create", onRoleChange);
     s.on("role_update", onRoleChange);
     s.on("role_delete", onRoleChange);
@@ -430,6 +462,8 @@ export function useSocket() {
       s.off("member_banned", onMemberBanChange);
       s.off("member_unbanned", onMemberBanChange);
       s.off("member_timeout", onMemberTimeout);
+      s.off("message_pin", onMessagePin);
+      s.off("dm_message_pin", onDMMessagePin);
       s.off("role_create", onRoleChange);
       s.off("role_update", onRoleChange);
       s.off("role_delete", onRoleChange);

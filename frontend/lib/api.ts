@@ -424,6 +424,12 @@ export const messagesApi = {
     api.delete(`/api/channels/${channelId}/messages/${msgId}/reactions`, { params: { emoji } }),
   search: (channelId: string, params: SearchParams) =>
     api.get<{ items: Message[] }>(`/api/channels/${channelId}/messages/search`, { params }).then((r) => r.data),
+  pin: (channelId: string, messageId: string) =>
+    api.put<Message>(`/api/channels/${channelId}/messages/${messageId}/pin`).then((r) => r.data),
+  unpin: (channelId: string, messageId: string) =>
+    api.delete<Message>(`/api/channels/${channelId}/messages/${messageId}/pin`).then((r) => r.data),
+  listPinned: (channelId: string) =>
+    api.get<Message[]>(`/api/channels/${channelId}/messages/pinned`).then((r) => r.data),
 };
 
 export interface SearchParams {
@@ -472,6 +478,12 @@ export const dmsApi = {
     api.delete(`/api/dms/${dmId}/messages/${msgId}/reactions`, { params: { emoji } }),
   search: (dmId: string, params: SearchParams) =>
     api.get<{ items: DMMessageType[] }>(`/api/dms/${dmId}/messages/search`, { params }).then((r) => r.data),
+  pinMessage: (dmId: string, msgId: string) =>
+    api.put<DMMessageType>(`/api/dms/${dmId}/messages/${msgId}/pin`).then((r) => r.data),
+  unpinMessage: (dmId: string, msgId: string) =>
+    api.delete<DMMessageType>(`/api/dms/${dmId}/messages/${msgId}/pin`).then((r) => r.data),
+  listPinned: (dmId: string) =>
+    api.get<DMMessageType[]>(`/api/dms/${dmId}/pinned`).then((r) => r.data),
 };
 
 // ── Friends ──────────────────────────────────────────────────

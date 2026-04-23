@@ -69,6 +69,15 @@ export function MessageList({ channelId, serverId }: Props) {
     try { await messagesApi.delete(channelId, messageId); } catch {}
   }, [channelId]);
 
+  const handlePin = useCallback(async (messageId: string, pin: boolean) => {
+    try {
+      if (pin) await messagesApi.pin(channelId, messageId);
+      else await messagesApi.unpin(channelId, messageId);
+    } catch (e: any) {
+      alert(e?.response?.data?.detail || "Ошибка");
+    }
+  }, [channelId]);
+
   return (
     <>
       <div
@@ -94,6 +103,7 @@ export function MessageList({ channelId, serverId }: Props) {
               onReact={handleReact}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              onPin={handlePin}
             />
           );
         })}

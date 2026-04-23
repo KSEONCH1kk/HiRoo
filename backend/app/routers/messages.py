@@ -78,6 +78,8 @@ def _build_response(msg: Message, current_user_id: uuid.UUID) -> MessageResponse
         reply_to=reply_to,
         edited_at=msg.edited_at,
         is_deleted=msg.is_deleted,
+        is_pinned=getattr(msg, "is_pinned", False),
+        pinned_at=getattr(msg, "pinned_at", None),
         created_at=msg.created_at,
         author=author,
         reactions=list(reaction_map.values()),
@@ -493,3 +495,157 @@ async def remove_reaction(
                 "emoji": emoji,
             },
         }, exclude_user=str(current_user.id))
+
+
+# ── Pinned messages ─────────────────────────────────────────────
+
+@router.put("/{message_id}/pin", response_model=MessageResponse)
+async def pin_message(
+    channel_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    channel, _ = await _get_channel_and_member(channel_id, db, current_user)
+    perms = await compute_permissions(channel.server_id, current_user.id, db, channel_id=channel.id)
+    if not (perms & Permissions.MANAGE_MESSAGES):
+        raise HTTPException(status_code=403, detail="Нет права закреплять сообщения")
+    result = await db.execute(
+        select(Message)
+        .options(selectinload(Message.author), selectinload(Message.reply_to).selectinload(Message.author))
+        .where(Message.id == message_id, Message.channel_id == channel_id)
+    )
+    msg = result.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    if msg.is_deleted:
+        raise HTTPException(status_code=400, detail="Нельзя закрепить удалённое сообщение")
+    msg.is_pinned = True
+    msg.pinned_at = datetime.now(timezone.utc)
+    await db.flush()
+    reactions_result = await db.execute(select(MessageReaction).where(MessageReaction.message_id == msg.id))
+    reactions = reactions_result.scalars().all()
+    resp = _build_message_response(msg, reactions, current_user.id)
+    await manager.broadcast_to_server(str(channel.server_id), {
+        "event": "message_pin",
+        "data": {
+            "channel_id": str(channel_id),
+            "message_id": str(message_id),
+            "is_pinned": True,
+        },
+    })
+    return resp
+
+
+@router.delete("/{message_id}/pin", response_model=MessageResponse)
+async def unpin_message(
+    channel_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    channel, _ = await _get_channel_and_member(channel_id, db, current_user)
+    perms = await compute_permissions(channel.server_id, current_user.id, db, channel_id=channel.id)
+    if not (perms & Permissions.MANAGE_MESSAGES):
+        raise HTTPException(status_code=403, detail="Нет права откреплять сообщения")
+    result = await db.execute(
+        select(Message)
+        .options(selectinload(Message.author), selectinload(Message.reply_to).selectinload(Message.author))
+        .where(Message.id == message_id, Message.channel_id == channel_id)
+    )
+    msg = result.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    msg.is_pinned = False
+    msg.pinned_at = None
+    await db.flush()
+    reactions_result = await db.execute(select(MessageReaction).where(MessageReaction.message_id == msg.id))
+    reactions = reactions_result.scalars().all()
+    resp = _build_message_response(msg, reactions, current_user.id)
+    await manager.broadcast_to_server(str(channel.server_id), {
+        "event": "message_pin",
+        "data": {
+            "channel_id": str(channel_id),
+            "message_id": str(message_id),
+            "is_pinned": False,
+        },
+    })
+    return resp
+
+
+@router.get("/pinned", response_model=list[MessageResponse])
+async def list_pinned(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    channel, _ = await _get_channel_and_member(channel_id, db, current_user)
+    perms = await compute_permissions(channel.server_id, current_user.id, db, channel_id=channel.id)
+    if not (perms & Permissions.READ_MESSAGES):
+        raise HTTPException(status_code=403, detail="Нет права читать сообщения")
+    result = await db.execute(
+        select(Message)
+        .options(selectinload(Message.author), selectinload(Message.reply_to).selectinload(Message.author))
+        .where(Message.channel_id == channel_id, Message.is_pinned == True, Message.is_deleted == False)
+        .order_by(Message.pinned_at.desc())
+        .limit(50)
+    )
+    msgs = result.scalars().all()
+    if not msgs:
+        return []
+    reactions_result = await db.execute(
+        select(MessageReaction).where(MessageReaction.message_id.in_([m.id for m in msgs]))
+    )
+    reactions_by_msg: dict[uuid.UUID, list[MessageReaction]] = {}
+    for r in reactions_result.scalars().all():
+        reactions_by_msg.setdefault(r.message_id, []).append(r)
+    return [
+        _build_message_response(m, reactions_by_msg.get(m.id, []), current_user.id)
+        for m in msgs
+    ]
+
+
+def _build_message_response(msg: Message, reactions: list[MessageReaction], current_user_id: uuid.UUID) -> MessageResponse:
+    """Inline version of the list-message serialization — used for ad-hoc
+    single-message responses (pin/unpin) where the caller has already loaded
+    relationships."""
+    reaction_map: dict[str, ReactionResponse] = {}
+    for r in reactions:
+        if r.emoji not in reaction_map:
+            reaction_map[r.emoji] = ReactionResponse(emoji=r.emoji, count=0, me=False)
+        reaction_map[r.emoji].count += 1
+        if r.user_id == current_user_id:
+            reaction_map[r.emoji].me = True
+    author = UserPublic.model_validate(msg.author, from_attributes=True) if msg.author else None
+    reply_to = None
+    ref = getattr(msg, "reply_to", None)
+    if ref:
+        ref_author = UserPublic.model_validate(ref.author, from_attributes=True) if ref.author else None
+        reply_to = ReplyPreview(
+            id=ref.id,
+            author=ref_author,
+            content=(ref.content or "")[:200],
+            is_deleted=ref.is_deleted,
+        )
+    return MessageResponse(
+        id=msg.id,
+        channel_id=msg.channel_id,
+        author_id=msg.author_id,
+        type=getattr(msg, "type", "text") or "text",
+        content=msg.content,
+        reply_to_id=msg.reply_to_id,
+        reply_to=reply_to,
+        edited_at=msg.edited_at,
+        is_deleted=msg.is_deleted,
+        is_pinned=getattr(msg, "is_pinned", False),
+        pinned_at=getattr(msg, "pinned_at", None),
+        created_at=msg.created_at,
+        author=author,
+        reactions=list(reaction_map.values()),
+        webhook_id=getattr(msg, "webhook_id", None),
+        webhook_name=getattr(msg, "webhook_name", None),
+        webhook_avatar_url=getattr(msg, "webhook_avatar_url", None),
+        embeds=getattr(msg, "embeds", None),
+        components=getattr(msg, "components", None),
+        application_id=getattr(msg, "application_id", None),
+    )
