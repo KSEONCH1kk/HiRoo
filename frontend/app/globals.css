@@ -176,6 +176,10 @@ input[type="checkbox"]:indeterminate::before {
   from { transform: scale(0.5); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+@keyframes hirooRecPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
 
 /* ─── Fullscreen video ─────────────────────────────────────────────
    When a voice-tile or message-video container goes into fullscreen,

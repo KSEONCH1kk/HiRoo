@@ -14,7 +14,12 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 const IMG_EXT = /\.(png|jpe?g|gif|webp|avif)(\?.*)?$/i;
 const VIDEO_EXT = /\.(mp4|webm|mov)(\?.*)?$/i;
-const AUDIO_EXT = /\.(mp3|ogg|wav|m4a)(\?.*)?$/i;
+const AUDIO_EXT = /\.(mp3|ogg|wav|m4a|weba)(\?.*)?$/i;
+// Voice-message attachments come from VoiceRecorderButton as
+// `voice-message-{timestamp}.{webm|m4a|ogg}`. The `.webm` variant
+// overlaps with VIDEO_EXT, so we key off the filename prefix to
+// route them into AudioPlayer regardless of container.
+const VOICE_MESSAGE_RE = /\/voice-message-[^/]+\.(webm|weba|m4a|ogg|mp3)(\?.*)?$/i;
 
 const CODE_BLOCK_RE = /```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g;
 
@@ -152,8 +157,8 @@ function ExternalUrlBlock({ url }: { url: string }) {
   const yt = parseYouTubeId(url);
   if (yt) return <YouTubeEmbed videoId={yt} originalUrl={url} />;
   if (IMG_EXT.test(url)) return <ViewerImage src={url} filename={filenameFromUrl(url)} />;
+  if (VOICE_MESSAGE_RE.test(url) || AUDIO_EXT.test(url)) return <AudioPlayer src={url} filename={filenameFromUrl(url)} />;
   if (VIDEO_EXT.test(url)) return <VideoPlayer src={url} filename={filenameFromUrl(url)} />;
-  if (AUDIO_EXT.test(url)) return <AudioPlayer src={url} filename={filenameFromUrl(url)} />;
   return <LinkEmbed url={url} />;
 }
 
@@ -162,8 +167,8 @@ function Attachment({ url }: { url: string }) {
   const name = filenameFromUrl(url);
 
   if (IMG_EXT.test(url)) return <ViewerImage src={full} filename={name} />;
+  if (VOICE_MESSAGE_RE.test(url) || AUDIO_EXT.test(url)) return <AudioPlayer src={full} filename={name} />;
   if (VIDEO_EXT.test(url)) return <VideoPlayer src={full} filename={name} />;
-  if (AUDIO_EXT.test(url)) return <AudioPlayer src={full} filename={name} />;
 
   return (
     <a

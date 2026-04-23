@@ -10,6 +10,7 @@ import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useMyTimeout, formatRemaining } from "@/hooks/useMyTimeout";
+import { VoiceRecorderButton } from "./VoiceRecorderButton";
 
 interface Props {
   placeholder: string;
@@ -309,6 +310,30 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
 
   const [dragOver, setDragOver] = useState(false);
 
+  // Voice-message path: bypass the textarea/attachment flow entirely —
+  // record → upload → send the attachment URL as a standalone message.
+  const handleVoiceMessage = async (file: File, _durationSec: number) => {
+    if (sending) return;
+    setSending(true);
+    try {
+      const reply = replyingTo;
+      const res = await uploadsApi.attachment(file);
+      let content = res.url;
+      if (reply && autoPing && reply.username) {
+        const escaped = reply.username.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const alreadyMentioned = new RegExp(`(^|[^\\w])@${escaped}\\b`, "i").test(content);
+        if (!alreadyMentioned) content = `@${reply.username} ${content}`;
+      }
+      if (roomKey && reply) cancelReplyStore(roomKey);
+      await onSend(content, reply?.messageId ?? null);
+    } catch {
+      // silently drop — composer doesn't surface upload errors for regular
+      // attachments either; user can just try again
+    } finally {
+      setSending(false);
+    }
+  };
+
   const timeoutUntil = useMyTimeout(serverId);
   if (timeoutUntil) {
     return (
@@ -573,6 +598,7 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
         padding: isMobile ? "6px 8px" : "8px 10px",
         display: "flex", alignItems: "flex-end", gap: 8,
         transition: "border-color 120ms",
+        position: "relative",
       }}>
         {!isMobile && (
           <button
@@ -625,23 +651,27 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
             )}
           </div>
         )}
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={sending || hasPendingUploads || !hasContent}
-          title={hasPendingUploads ? "Ожидание загрузки…" : "Отправить"}
-          style={{
-            height: 32, width: 32, borderRadius: 8, border: "none",
-            cursor: hasPendingUploads || !hasContent ? "default" : "pointer",
-            background: hasContent && !hasPendingUploads ? "var(--accent)" : "transparent",
-            color: hasContent && !hasPendingUploads ? "#fff" : "var(--text-2)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            transition: "background 120ms",
-          }}>
-          {hasPendingUploads
-            ? <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: 13 }} />
-            : <i className="fa-solid fa-paper-plane" style={{ fontSize: 13 }} />}
-        </button>
+        {isMobile && !hasContent && !sending && !hasPendingUploads ? (
+          <VoiceRecorderButton onSend={handleVoiceMessage} />
+        ) : (
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={sending || hasPendingUploads || !hasContent}
+            title={hasPendingUploads ? "Ожидание загрузки…" : "Отправить"}
+            style={{
+              height: 32, width: 32, borderRadius: 8, border: "none",
+              cursor: hasPendingUploads || !hasContent ? "default" : "pointer",
+              background: hasContent && !hasPendingUploads ? "var(--accent)" : "transparent",
+              color: hasContent && !hasPendingUploads ? "#fff" : "var(--text-2)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "background 120ms",
+            }}>
+            {hasPendingUploads
+              ? <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: 13 }} />
+              : <i className="fa-solid fa-paper-plane" style={{ fontSize: 13 }} />}
+          </button>
+        )}
       </div>
       </div>
       <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono", marginTop: 4, display: "flex", justifyContent: "space-between", gap: 10 }}>
