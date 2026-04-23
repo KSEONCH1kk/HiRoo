@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.deps import get_db, get_redis, get_current_active_user
+from app.core.deps import get_db, get_redis, get_current_active_user, get_current_human_user
 from app.core.rate_limit import limiter, LIMIT_AUTH
 from app.core.security import create_access_token, create_refresh_token
 from app.models.session import Session as UserSession
@@ -108,7 +108,7 @@ async def qr_approve(
     request: Request,
     redis: aioredis.Redis = Depends(get_redis),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_human_user),
 ):
     """Mobile side: confirm a scanned code and mint tokens for the desktop."""
     raw = await redis.get(f"qr:{body.code}")

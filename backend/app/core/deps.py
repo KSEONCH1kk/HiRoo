@@ -95,6 +95,18 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     return current_user
 
 
+async def get_current_human_user(current_user: User = Depends(get_current_active_user)) -> User:
+    """То же, что active_user, но отказывает bot-токенам. Использовать на
+    эндпоинтах, которые касаются личного аккаунта живого человека: смена
+    пароля/email, друзья, сессии, устройства, QR-логин, телеметрия opt-out."""
+    if current_user.is_bot:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bot accounts cannot perform this action",
+        )
+    return current_user
+
+
 async def get_current_user_optional(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),

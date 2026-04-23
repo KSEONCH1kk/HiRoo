@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -7,6 +8,7 @@ import Link from "next/link";
 import { authApi } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { connectSocket } from "@/lib/socket";
+import { Captcha } from "@/components/auth/Captcha";
 
 const schema = z.object({
   username: z.string().min(2, "Минимум 2 символа").max(32, "Максимум 32 символа")
@@ -22,13 +24,18 @@ type Form = z.infer<typeof schema>;
 export default function RegisterPage() {
   const router = useRouter();
   const { setAuth } = useAuthStore();
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
   });
 
   const onSubmit = async (data: Form) => {
     try {
-      const res = await authApi.register(data);
+      if (captchaToken === null) {
+        setError("root", { message: "Подтвердите, что вы не робот" });
+        return;
+      }
+      const res = await authApi.register({ ...data, captcha_token: captchaToken || undefined });
       setAuth(res.user, res.access_token);
       connectSocket();
       const pendingInvite = typeof window !== "undefined" ? sessionStorage.getItem("pendingInvite") : null;
@@ -83,6 +90,8 @@ export default function RegisterPage() {
           {field("username", "Имя пользователя", "text", "username")}
           {field("email", "Email", "email", "email")}
           {field("password", "Пароль", "password", "new-password")}
+
+          <Captcha onChange={setCaptchaToken} theme="dark" />
 
           {errors.root && (
             <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(255,90,106,0.1)", border: "1px solid rgba(255,90,106,0.3)", color: "var(--danger)", fontSize: 13, marginBottom: 16 }}>

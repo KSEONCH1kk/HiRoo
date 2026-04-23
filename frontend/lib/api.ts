@@ -14,8 +14,45 @@ export const api = axios.create({ baseURL: BASE, withCredentials: true });
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = tokenStore.get();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  config.headers["X-Super-Properties"] = getSuperProperties();
   return config;
 });
+
+// ── Client fingerprint (аналог Discord X-Super-Properties) ─────────
+// base64-JSON с минимальным набором полей — бэк валидирует build_number,
+// platform и client_version. Не секрет, просто маркер «это реальный
+// HiRoo-клиент, а не curl». Собирается один раз за сессию.
+let _superProps = "";
+function getSuperProperties(): string {
+  if (_superProps) return _superProps;
+  if (typeof window === "undefined") return "";
+  const nav = navigator;
+  const isDesktop = !!(window as any).hiroo?.isDesktop;
+  const payload = {
+    platform: isDesktop ? "desktop" : /iPhone|iPad/.test(nav.userAgent) ? "ios"
+            : /Android/.test(nav.userAgent) ? "android" : "web",
+    client_version: (process.env.NEXT_PUBLIC_APP_VERSION as string) || "1.0.0",
+    build_number: parseInt((process.env.NEXT_PUBLIC_APP_BUILD as string) || "1", 10) || 1,
+    locale: nav.language || "",
+    timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return ""; } })(),
+    browser: (() => {
+      const ua = nav.userAgent;
+      if (/Firefox\//.test(ua)) return "firefox";
+      if (/Edg\//.test(ua)) return "edge";
+      if (/Chrome\//.test(ua)) return "chrome";
+      if (/Safari\//.test(ua)) return "safari";
+      return "other";
+    })(),
+    os: /Windows/.test(nav.userAgent) ? "windows"
+      : /Mac/.test(nav.userAgent) ? "macos"
+      : /Linux/.test(nav.userAgent) ? "linux"
+      : /iPhone|iPad/.test(nav.userAgent) ? "ios"
+      : /Android/.test(nav.userAgent) ? "android" : "other",
+  };
+  try { _superProps = btoa(unescape(encodeURIComponent(JSON.stringify(payload)))); }
+  catch { _superProps = ""; }
+  return _superProps;
+}
 
 // Auto-refresh on 401 + resilient retry on 5xx (backend rebuild / nginx 502/503/504)
 let refreshing = false;
@@ -92,12 +129,14 @@ api.interceptors.response.use(
 
 // ── Auth ─────────────────────────────────────────────────────
 export const authApi = {
-  register: (data: { username: string; email: string; password: string }) =>
+  register: (data: { username: string; email: string; password: string; captcha_token?: string | null }) =>
     api.post<TokenResponse>("/api/auth/register", data).then((r) => r.data),
-  login: (data: { email: string; password: string }) =>
+  login: (data: { email: string; password: string; captcha_token?: string | null }) =>
     api.post<TokenResponse>("/api/auth/login", data).then((r) => r.data),
   logout: () => api.post("/api/auth/logout"),
   me: () => api.get<User>("/api/auth/me").then((r) => r.data),
+  captchaConfig: () =>
+    api.get<{ provider: string; sitekey: string; required: boolean }>("/api/auth/captcha").then((r) => r.data),
 };
 
 // ── QR login ─────────────────────────────────────────────────

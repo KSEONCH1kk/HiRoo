@@ -39,6 +39,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
+    captcha_token: str | None = Field(None, max_length=4096)
 
     @field_validator("password")
     @classmethod
@@ -53,6 +54,7 @@ class UserCreate(UserBase):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=1, max_length=128)
+    captcha_token: str | None = Field(None, max_length=4096)
 
 
 class UserUpdate(BaseModel):

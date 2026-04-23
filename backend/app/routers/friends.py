@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, and_, func
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import get_db, get_current_active_user
+from app.core.deps import get_db, get_current_active_user, get_current_human_user
 from app.models.user import User
 from app.models.friend import FriendRequest
 from app.schemas.friend import FriendRequestCreate, FriendRequestResponse, FriendResponse
@@ -59,7 +59,7 @@ async def pending_requests(
 async def send_friend_request(
     body: FriendRequestCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_human_user),
 ):
     raw = (body.username or "").strip().lstrip("@")
     if not raw:

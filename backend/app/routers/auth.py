@@ -13,11 +13,24 @@ from app.core.security import (
 )
 from app.core.config import settings
 from app.core.rate_limit import limiter, LIMIT_AUTH
+from app.core.super_props import require_super_props
+from app.core.captcha import verify_captcha
 from app.models.user import User
 from app.models.session import Session as UserSession
 from app.schemas.user import UserCreate, UserLogin, TokenResponse, UserResponse
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+@router.get("/captcha")
+async def captcha_config():
+    """Публичный sitekey и флаг "нужна ли вообще капча"."""
+    from app.core.captcha import public_sitekey, ENFORCE, HCAPTCHA_SECRET
+    return {
+        "provider": "hcaptcha",
+        "sitekey": public_sitekey(),
+        "required": ENFORCE and bool(HCAPTCHA_SECRET),
+    }
 
 
 def _hash_token(t: str) -> str:
@@ -50,7 +63,9 @@ async def register(
     body: UserCreate,
     response: Response,
     db: AsyncSession = Depends(get_db),
+    _sp: dict | None = Depends(require_super_props),
 ):
+    await verify_captcha(body.captcha_token, request)
     # Check duplicates
     result = await db.execute(select(User).where(User.email == body.email))
     if result.scalar_one_or_none():
@@ -91,7 +106,9 @@ async def login(
     body: UserLogin,
     response: Response,
     db: AsyncSession = Depends(get_db),
+    _sp: dict | None = Depends(require_super_props),
 ):
+    await verify_captcha(body.captcha_token, request)
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 

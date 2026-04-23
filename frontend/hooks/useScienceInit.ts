@@ -2,6 +2,7 @@
 import { useEffect } from "react";
 import { useAuthStore } from "@/store/authStore";
 import { initScience, track } from "@/lib/science";
+import { printSelfXssWarning } from "@/lib/selfxss";
 
 /**
  * Инициализирует клиентскую телеметрию один раз за сессию вкладки.
@@ -10,6 +11,7 @@ import { initScience, track } from "@/lib/science";
  */
 export function useScienceInit() {
   useEffect(() => {
+    printSelfXssWarning();
     initScience({
       getUserId: () => useAuthStore.getState().user?.id ?? null,
       getScienceEnabled: () => useAuthStore.getState().user?.science_enabled ?? true,

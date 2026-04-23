@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.core.deps import get_db, get_current_active_user
+from app.core.deps import get_db, get_current_active_user, get_current_human_user
 from app.core.config import settings
 from app.core.rate_limit import limiter, LIMIT_API
 from app.models.user import User
@@ -335,7 +335,7 @@ async def block_user(
 async def update_my_preferences(
     body: PreferencesUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_human_user),
 ):
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(current_user, field, value)
@@ -368,7 +368,7 @@ async def list_my_devices(
 async def revoke_device(
     device_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_human_user),
 ):
     from app.models.device import DeviceToken
     r = await db.execute(select(DeviceToken).where(
@@ -414,7 +414,7 @@ async def list_my_sessions(
 async def revoke_session(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_human_user),
 ):
     from app.models.session import Session as UserSession
     r = await db.execute(select(UserSession).where(
@@ -430,7 +430,7 @@ async def revoke_session(
 async def revoke_all_other_sessions(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_human_user),
 ):
     """Log out everywhere except the calling browser/device."""
     import hashlib

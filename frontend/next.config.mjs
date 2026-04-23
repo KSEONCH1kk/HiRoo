@@ -8,15 +8,24 @@ const nextConfig = {
     ],
   },
   async headers() {
+    // hCaptcha требует доступ к нескольким своим доменам: js.hcaptcha.com
+    // для загрузчика, newassets.hcaptcha.com для виджета и ресурсов,
+    // hcaptcha.com для iframe челленджа, assets.hcaptcha.com на legacy.
+    const hcaptcha = {
+      script: "https://hcaptcha.com https://*.hcaptcha.com",
+      frame:  "https://hcaptcha.com https://*.hcaptcha.com",
+      style:  "https://hcaptcha.com https://*.hcaptcha.com",
+      connect:"https://hcaptcha.com https://*.hcaptcha.com",
+    };
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+      `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com ${hcaptcha.script}`,
+      `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com ${hcaptcha.style}`,
       "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:",
       "img-src 'self' https: data: blob:",
       "media-src 'self' https: blob:",
-      "connect-src 'self' https://hiroo.intave.tech wss://hiroo.intave.tech https://*.livekit.cloud wss://*.livekit.cloud",
-      "frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com",
+      `connect-src 'self' https://hiroo.intave.tech wss://hiroo.intave.tech https://*.livekit.cloud wss://*.livekit.cloud ${hcaptcha.connect}`,
+      `frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com ${hcaptcha.frame}`,
       "worker-src 'self' blob:",
       "frame-ancestors 'none'",
       "base-uri 'self'",

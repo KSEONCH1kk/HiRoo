@@ -9,6 +9,8 @@ import { authApi } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { connectSocket } from "@/lib/socket";
 import { QrLoginPanel } from "@/components/auth/QrLoginPanel";
+import { Captcha } from "@/components/auth/Captcha";
+import { useState } from "react";
 
 const schema = z.object({
   email: z.string().email("Некорректный email"),
@@ -29,13 +31,18 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { setAuth } = useAuthStore();
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
   });
 
   const onSubmit = async (data: Form) => {
     try {
-      const res = await authApi.login(data);
+      if (captchaToken === null) {
+        setError("root", { message: "Подтвердите, что вы не робот" });
+        return;
+      }
+      const res = await authApi.login({ ...data, captcha_token: captchaToken || undefined });
       setAuth(res.user, res.access_token);
       connectSocket();
       const pendingInvite = typeof window !== "undefined" ? sessionStorage.getItem("pendingInvite") : null;
@@ -101,6 +108,8 @@ function LoginForm() {
             />
             {errors.password && <p style={{ color: "var(--danger)", fontSize: 12, marginTop: 4 }}>{errors.password.message}</p>}
           </div>
+
+          <Captcha onChange={setCaptchaToken} theme="dark" />
 
           {errors.root && (
             <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(255,90,106,0.1)", border: "1px solid rgba(255,90,106,0.3)", color: "var(--danger)", fontSize: 13, marginBottom: 16 }}>
