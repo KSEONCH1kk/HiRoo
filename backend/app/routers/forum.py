@@ -305,6 +305,8 @@ async def create_post(
     ch = await _get_forum(db, channel_id)
     await _require_member(db, ch.server_id, current_user)
     await _require_channel_perm(db, ch, current_user, Permissions.SEND_MESSAGES)
+    from app.services.moderation import ensure_not_timed_out
+    await ensure_not_timed_out(db, ch.server_id, current_user.id)
 
     # Validate tag_ids belong to this channel.
     if body.tag_ids:
@@ -556,6 +558,8 @@ async def create_reply(
     post, ch = await _get_post_with_channel(db, post_id)
     await _require_member(db, ch.server_id, current_user)
     await _require_channel_perm(db, ch, current_user, Permissions.SEND_MESSAGES)
+    from app.services.moderation import ensure_not_timed_out
+    await ensure_not_timed_out(db, ch.server_id, current_user.id)
     if post.is_locked:
         perms = await compute_permissions(ch.server_id, current_user.id, db, channel_id=ch.id)
         if not ((perms & Permissions.MANAGE_MESSAGES) or (perms & Permissions.ADMIN)):

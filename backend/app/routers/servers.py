@@ -279,6 +279,16 @@ async def update_server(
             server.system_channel_id = ch.id
     if body.welcome_enabled is not None:
         server.welcome_enabled = body.welcome_enabled
+    if body.auto_mod_enabled is not None:
+        server.auto_mod_enabled = body.auto_mod_enabled
+    if body.auto_mod_words is not None:
+        server.auto_mod_words = [w.strip() for w in body.auto_mod_words if w.strip()][:200]
+    if body.auto_mod_mention_threshold is not None:
+        server.auto_mod_mention_threshold = body.auto_mod_mention_threshold
+    if body.auto_mod_action is not None:
+        server.auto_mod_action = body.auto_mod_action
+    if body.auto_mod_timeout_seconds is not None:
+        server.auto_mod_timeout_seconds = body.auto_mod_timeout_seconds
     await db.flush()
     from app.services.audit import audit_log
     await audit_log(
@@ -433,6 +443,88 @@ async def list_bans(
         BanResponse(user_id=b.user_id, banned_by=b.banned_by, reason=b.reason, created_at=b.created_at)
         for b in res.scalars().all()
     ]
+
+
+# ── Timeouts ─────────────────────────────────────────────────────
+
+class TimeoutBody(BaseModel):
+    duration_seconds: int = Field(..., ge=1, le=60 * 60 * 24 * 28)  # max 28 days
+    reason: str | None = Field(None, max_length=500)
+
+
+class TimeoutResponse(BaseModel):
+    user_id: uuid.UUID
+    timeout_until: datetime
+    reason: str | None = None
+
+
+@router.put("/{server_id}/members/{user_id}/timeout", response_model=TimeoutResponse)
+async def set_timeout(
+    server_id: uuid.UUID,
+    user_id: uuid.UUID,
+    body: TimeoutBody,
+    db: AsyncSession = Depends(get_db),
+    admin: ServerMember = Depends(require_permission(Permissions.MODERATE_MEMBERS)),
+):
+    from app.services.moderation import apply_timeout
+    from app.services.audit import audit_log
+    from app.services.websocket_service import manager as _ws
+    if admin.user_id == user_id:
+        raise HTTPException(status_code=400, detail="Нельзя затаймаутить самого себя")
+    m = await apply_timeout(db, server_id, user_id, body.duration_seconds, body.reason)
+    await audit_log(
+        db, server_id, admin.user_id, "member_timeout",
+        target_user_id=user_id, reason=body.reason,
+        extra={"duration_seconds": body.duration_seconds,
+               "until": m.timeout_until.isoformat() if m.timeout_until else None},
+    )
+    # Kick them out of voice if they're sitting in a server channel now.
+    try:
+        current_room = await _ws.voice_room_of(str(user_id))
+        if current_room and current_room.startswith("channel:"):
+            await _ws.send_to_user(str(user_id), {"event": "voice_force_disconnect", "data": {}})
+    except Exception:
+        pass
+    await _ws.broadcast_to_server(str(server_id), {
+        "event": "member_timeout",
+        "data": {
+            "server_id": str(server_id),
+            "user_id": str(user_id),
+            "timeout_until": m.timeout_until.isoformat() if m.timeout_until else None,
+            "reason": m.timeout_reason,
+        },
+    })
+    return TimeoutResponse(
+        user_id=user_id, timeout_until=m.timeout_until, reason=m.timeout_reason,
+    )
+
+
+@router.delete("/{server_id}/members/{user_id}/timeout", status_code=204)
+async def clear_timeout(
+    server_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: ServerMember = Depends(require_permission(Permissions.MODERATE_MEMBERS)),
+):
+    from app.services.moderation import get_member
+    from app.services.audit import audit_log
+    from app.services.websocket_service import manager as _ws
+    m = await get_member(db, server_id, user_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="Участник не найден")
+    m.timeout_until = None
+    m.timeout_reason = None
+    await db.flush()
+    await audit_log(db, server_id, admin.user_id, "member_timeout_remove", target_user_id=user_id)
+    await _ws.broadcast_to_server(str(server_id), {
+        "event": "member_timeout",
+        "data": {
+            "server_id": str(server_id),
+            "user_id": str(user_id),
+            "timeout_until": None,
+            "reason": None,
+        },
+    })
 
 
 @router.post("/{server_id}/bans", response_model=BanResponse, status_code=201)

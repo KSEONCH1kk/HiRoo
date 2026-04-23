@@ -31,6 +31,7 @@ class Permissions:
     USE_SOUNDBOARD = 1 << 19      # trigger sounds in a voice room
     UPLOAD_SOUNDBOARD = 1 << 20   # add new sounds to the server
     MANAGE_SOUNDBOARD = 1 << 21   # delete / edit any sound
+    MODERATE_MEMBERS = 1 << 22    # timeout members (mute them across server)
 
     DEFAULT = (
         SEND_MESSAGES | READ_MESSAGES | ATTACH_FILES | ADD_REACTIONS

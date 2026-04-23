@@ -260,6 +260,10 @@ export const serversApi = {
     api.post<ServerBan>(`/api/servers/${serverId}/bans`, { user_id: userId, reason: reason ?? null }).then((r) => r.data),
   unbanMember: (serverId: string, userId: string) =>
     api.delete(`/api/servers/${serverId}/bans/${userId}`),
+  setTimeout: (serverId: string, userId: string, duration_seconds: number, reason?: string) =>
+    api.put(`/api/servers/${serverId}/members/${userId}/timeout`, { duration_seconds, reason }).then((r) => r.data),
+  clearTimeout: (serverId: string, userId: string) =>
+    api.delete(`/api/servers/${serverId}/members/${userId}/timeout`),
 };
 
 export interface ServerBan {

@@ -70,6 +70,8 @@ export interface ServerMember {
   joined_at: string;
   user: UserPublic;
   role_ids: string[];
+  timeout_until?: string | null;
+  timeout_reason?: string | null;
 }
 
 export interface Channel {

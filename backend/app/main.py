@@ -234,6 +234,14 @@ MIGRATIONS = [
     """,
     "CREATE INDEX IF NOT EXISTS ix_audit_logs_server_id ON audit_logs (server_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS ix_audit_logs_action ON audit_logs (action)",
+    # Timeouts + AutoMod
+    "ALTER TABLE server_members ADD COLUMN IF NOT EXISTS timeout_until TIMESTAMP WITH TIME ZONE",
+    "ALTER TABLE server_members ADD COLUMN IF NOT EXISTS timeout_reason VARCHAR(500)",
+    "ALTER TABLE servers ADD COLUMN IF NOT EXISTS auto_mod_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE servers ADD COLUMN IF NOT EXISTS auto_mod_words JSONB NOT NULL DEFAULT '[]'::jsonb",
+    "ALTER TABLE servers ADD COLUMN IF NOT EXISTS auto_mod_mention_threshold INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE servers ADD COLUMN IF NOT EXISTS auto_mod_action VARCHAR(16) NOT NULL DEFAULT 'delete'",
+    "ALTER TABLE servers ADD COLUMN IF NOT EXISTS auto_mod_timeout_seconds INTEGER NOT NULL DEFAULT 300",
 ]
 
 

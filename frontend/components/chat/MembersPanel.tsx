@@ -6,6 +6,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { ClanTag } from "@/components/ui/ClanTag";
 import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
 import { RoleAssignModal } from "@/components/modals/RoleAssignModal";
+import { TimeoutModal } from "@/components/modals/TimeoutModal";
 import { useUIStore } from "@/store/uiStore";
 import { useAuthStore } from "@/store/authStore";
 import { useServerRoles } from "@/hooks/useServerRoles";
@@ -34,6 +35,7 @@ export function MembersPanelInner({ serverId }: Props) {
   const qc = useQueryClient();
   const [ctx, setCtx] = useState<{ x: number; y: number; user: UserPublic } | null>(null);
   const [roleModal, setRoleModal] = useState<UserPublic | null>(null);
+  const [timeoutModalUser, setTimeoutModalUser] = useState<{ id: string; name?: string } | null>(null);
 
   const kick = useMutation({
     mutationFn: (userId: string) => serversApi.kickMember(serverId, userId),
@@ -89,6 +91,25 @@ export function MembersPanelInner({ serverId }: Props) {
     if (!isSelf && (has("MANAGE_ROLES") || has("MANAGE_SERVER"))) {
       items.push({ separator: true, label: "" } as MenuItem);
       items.push({ icon: "fa-crown", label: "Управление ролями", onClick: () => setRoleModal(u) });
+    }
+    if (!isSelf && has("MODERATE_MEMBERS")) {
+      const member = members.find((m) => m.user.id === u.id);
+      const isTimedOut = !!(member?.timeout_until
+        && new Date(member.timeout_until).getTime() > Date.now());
+      if (isTimedOut) {
+        items.push({
+          icon: "fa-hourglass-end", label: "Отменить тайм-аут",
+          onClick: async () => {
+            try { await serversApi.clearTimeout(serverId, u.id); qc.invalidateQueries({ queryKey: ["members", serverId] }); } catch {}
+          },
+        });
+      } else {
+        const displayName = member?.nickname || u.display_name || u.username;
+        items.push({
+          icon: "fa-hourglass-half", label: "Тайм-аут…",
+          onClick: () => setTimeoutModalUser({ id: u.id, name: displayName }),
+        });
+      }
     }
     if (!isSelf && has("KICK_MEMBERS")) {
       items.push({ icon: "fa-user-minus", label: "Исключить", danger: true, onClick: () => {
@@ -170,6 +191,14 @@ export function MembersPanelInner({ serverId }: Props) {
 
       {ctx && <ContextMenu x={ctx.x} y={ctx.y} items={buildMenu(ctx.user)} onClose={() => setCtx(null)} />}
       {roleModal && <RoleAssignModal serverId={serverId} user={roleModal} onClose={() => setRoleModal(null)} />}
+      {timeoutModalUser && (
+        <TimeoutModal
+          serverId={serverId}
+          userId={timeoutModalUser.id}
+          displayName={timeoutModalUser.name}
+          onClose={() => setTimeoutModalUser(null)}
+        />
+      )}
     </div>
   );
 }

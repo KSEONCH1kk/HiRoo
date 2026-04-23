@@ -14,6 +14,7 @@ import { SoundboardTab } from "@/components/server-settings/SoundboardTab";
 import { TemplatesTab } from "@/components/server-settings/TemplatesTab";
 import { AuditLogTab } from "@/components/server-settings/AuditLogTab";
 import { BansTab } from "@/components/server-settings/BansTab";
+import { AutoModTab } from "@/components/server-settings/AutoModTab";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PermissionKey } from "@/lib/permissions";
 import type { Server } from "@/types";
@@ -28,6 +29,7 @@ const TABS: { id: string; label: string; icon: string; perm?: PermissionKey }[] 
   { id: "soundboard", label: "Звуковая панель", icon: "fa-music" },
   { id: "templates", label: "Шаблоны", icon: "fa-clone", perm: "MANAGE_SERVER" },
   { id: "bans", label: "Забаненные", icon: "fa-user-slash", perm: "BAN_MEMBERS" },
+  { id: "automod", label: "Автомодерация", icon: "fa-shield-heart", perm: "MANAGE_SERVER" },
   { id: "audit", label: "Журнал аудита", icon: "fa-scroll", perm: "MANAGE_SERVER" },
 ];
 
@@ -139,6 +141,7 @@ export default function ServerSettingsPage({ params }: { params: { serverId: str
               {active === "soundboard" && <SoundboardTab serverId={serverId} />}
               {active === "templates" && <TemplatesTab serverId={serverId} />}
               {active === "bans" && <BansTab serverId={serverId} />}
+              {active === "automod" && <AutoModTab server={server} />}
               {active === "audit" && <AuditLogTab serverId={serverId} />}
             </>
           )}

@@ -144,12 +144,51 @@ async def send_message(
     if not (perms & Permissions.SEND_MESSAGES):
         raise HTTPException(status_code=403, detail="Нет права отправлять сообщения в этом канале")
 
+    # Timeout check — blocks send regardless of role perms.
+    from app.services.moderation import ensure_not_timed_out, check_automod, apply_timeout
+    await ensure_not_timed_out(db, channel.server_id, current_user.id)
+
     import re as _re
     content_for_checks = body.content or ""
     if "/uploads/attachments/" in content_for_checks and not (perms & Permissions.ATTACH_FILES):
         raise HTTPException(status_code=403, detail="Нет права прикреплять файлы")
     if _re.search(r"(^|[^\w])@(everyone|all)\b", content_for_checks, _re.IGNORECASE) and not (perms & Permissions.MENTION_EVERYONE):
         raise HTTPException(status_code=403, detail="Нет права упоминать @everyone")
+
+    # AutoMod — runs on non-admins only so mods aren't locked out by their
+    # own rules. "delete" rejects the send; "timeout" also puts the user
+    # on a timed mute.
+    if not (perms & Permissions.ADMIN):
+        server_res = await db.execute(
+            select(__import__("app.models.server", fromlist=["Server"]).Server)
+            .where(__import__("app.models.server", fromlist=["Server"]).Server.id == channel.server_id)
+        )
+        server = server_res.scalar_one_or_none()
+        if server:
+            violation = check_automod(server, body.content or "")
+            if violation:
+                from app.services.audit import audit_log
+                await audit_log(
+                    db, channel.server_id, None, "automod_trigger",
+                    target_user_id=current_user.id,
+                    reason=violation["reason"],
+                    extra={"action": violation["action"],
+                           "content": (body.content or "")[:200]},
+                )
+                if violation["action"] == "timeout":
+                    await apply_timeout(
+                        db, channel.server_id, current_user.id,
+                        int(server.auto_mod_timeout_seconds or 300),
+                        reason=f"AutoMod: {violation['reason']}",
+                    )
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"AutoMod: {violation['reason']}. Вам выдан тайм-аут.",
+                    )
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"AutoMod: {violation['reason']}",
+                )
 
     # Bots may attach rich components + embeds and tag the message with their
     # application_id so the frontend can route button clicks back to them.

@@ -21,6 +21,7 @@ export const PERMISSIONS = {
   USE_SOUNDBOARD: 1 << 19,
   UPLOAD_SOUNDBOARD: 1 << 20,
   MANAGE_SOUNDBOARD: 1 << 21,
+  MODERATE_MEMBERS: 1 << 22,
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSIONS;
@@ -71,6 +72,12 @@ export const PERMISSION_GROUPS: { title: string; items: { key: PermissionKey; la
       { key: "USE_SOUNDBOARD", label: "Использовать звуковую панель", hint: "Проигрывать звуки в войсе" },
       { key: "UPLOAD_SOUNDBOARD", label: "Загружать звуки", hint: "До 30 секунд" },
       { key: "MANAGE_SOUNDBOARD", label: "Управлять звуками", hint: "Удалять и переименовывать любые" },
+    ],
+  },
+  {
+    title: "Модерация",
+    items: [
+      { key: "MODERATE_MEMBERS", label: "Тайм-аут участников", hint: "Временный мут на сервере" },
     ],
   },
 ];

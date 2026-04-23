@@ -6,20 +6,72 @@ import { Avatar } from "@/components/ui/Avatar";
 import type { UserPublic } from "@/types";
 
 const ACTION_LABELS: Record<string, { text: string; icon: string; color?: string }> = {
-  server_update:    { text: "Изменил настройки сервера", icon: "fa-sliders" },
-  channel_create:   { text: "Создал канал", icon: "fa-hashtag", color: "var(--ok, #58cf8c)" },
-  channel_update:   { text: "Изменил канал", icon: "fa-pen" },
-  channel_delete:   { text: "Удалил канал", icon: "fa-trash", color: "var(--danger)" },
-  role_create:      { text: "Создал роль", icon: "fa-shield", color: "var(--ok, #58cf8c)" },
-  role_update:      { text: "Изменил роль", icon: "fa-shield-halved" },
-  role_delete:      { text: "Удалил роль", icon: "fa-shield", color: "var(--danger)" },
-  member_kick:      { text: "Исключил участника", icon: "fa-user-minus", color: "var(--danger)" },
-  member_ban:       { text: "Забанил участника", icon: "fa-hammer", color: "var(--danger)" },
-  member_unban:     { text: "Разбанил участника", icon: "fa-user-check", color: "var(--ok, #58cf8c)" },
+  server_update:         { text: "Изменил настройки сервера", icon: "fa-sliders" },
+  channel_create:        { text: "Создал канал", icon: "fa-hashtag", color: "var(--ok, #58cf8c)" },
+  channel_update:        { text: "Изменил канал", icon: "fa-pen" },
+  channel_delete:        { text: "Удалил канал", icon: "fa-trash", color: "var(--danger)" },
+  role_create:           { text: "Создал роль", icon: "fa-shield", color: "var(--ok, #58cf8c)" },
+  role_update:           { text: "Изменил роль", icon: "fa-shield-halved" },
+  role_delete:           { text: "Удалил роль", icon: "fa-shield", color: "var(--danger)" },
+  role_reorder:          { text: "Переупорядочил роли", icon: "fa-arrows-up-down" },
+  member_kick:           { text: "Исключил участника", icon: "fa-user-minus", color: "var(--danger)" },
+  member_ban:            { text: "Забанил участника", icon: "fa-hammer", color: "var(--danger)" },
+  member_unban:          { text: "Разбанил участника", icon: "fa-user-check", color: "var(--ok, #58cf8c)" },
+  member_timeout:        { text: "Выдал тайм-аут участнику", icon: "fa-hourglass-half", color: "var(--danger)" },
+  member_timeout_remove: { text: "Снял тайм-аут с участника", icon: "fa-hourglass-end", color: "var(--ok, #58cf8c)" },
+  automod_trigger:       { text: "Автомодерация сработала на", icon: "fa-shield-virus", color: "var(--danger)" },
 };
 
 function actionMeta(key: string) {
   return ACTION_LABELS[key] ?? { text: key, icon: "fa-circle-info" };
+}
+
+function formatDuration(sec: number): string {
+  if (sec < 60) return `${sec} сек`;
+  if (sec < 3600) return `${Math.round(sec / 60)} мин`;
+  if (sec < 86400) {
+    const h = Math.floor(sec / 3600);
+    const m = Math.round((sec % 3600) / 60);
+    return m ? `${h} ч ${m} мин` : `${h} ч`;
+  }
+  const d = Math.floor(sec / 86400);
+  const h = Math.round((sec % 86400) / 3600);
+  return h ? `${d} д ${h} ч` : `${d} д`;
+}
+
+/** Render an extras dict as a terse, human-readable summary.
+ * Known keys get friendly labels; unknown keys fall back to `key: value`. */
+function formatExtras(action: string, extra: Record<string, any>): string | null {
+  const parts: string[] = [];
+  const pushed = new Set<string>();
+  const push = (k: string, v: string) => { parts.push(v); pushed.add(k); };
+
+  if (typeof extra.duration_seconds === "number") {
+    push("duration_seconds", `на ${formatDuration(extra.duration_seconds)}`);
+  }
+  if (typeof extra.until === "string") {
+    try {
+      const d = new Date(extra.until);
+      push("until", `до ${d.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" })}`);
+    } catch {}
+  }
+  if (typeof extra.count === "number") {
+    push("count", action === "role_reorder" ? `${extra.count} ролей` : `количество: ${extra.count}`);
+  }
+  if (extra.type && !pushed.has("type") && !extra.name) {
+    const t = extra.type;
+    push("type", t === "voice" ? "голосовой" : t === "forum" ? "форум" : t === "category" ? "категория" : String(t));
+  }
+
+  // Hide plumbing that isn't useful in a log row.
+  const HIDDEN = new Set(["channel_id", "role_id", "user_id", "type", "name"]);
+  for (const [k, v] of Object.entries(extra)) {
+    if (pushed.has(k) || HIDDEN.has(k)) continue;
+    const val = typeof v === "string" ? v : JSON.stringify(v);
+    if (val == null || val === "") continue;
+    parts.push(`${k}: ${val}`);
+  }
+  return parts.length ? parts.join(" · ") : null;
 }
 
 export function AuditLogTab({ serverId }: { serverId: string }) {
@@ -54,6 +106,7 @@ export function AuditLogTab({ serverId }: { serverId: string }) {
           ["member_kick", "Кики"],
           ["member_ban", "Баны"],
           ["member_unban", "Разбаны"],
+          ["member_timeout", "Тайм-ауты"],
           ["server_update", "Настройки"],
         ].map(([k, label]) => (
           <button
@@ -142,13 +195,15 @@ function AuditRow({ entry }: { entry: AuditEntry }) {
             Причина: {entry.reason}
           </div>
         )}
-        {entry.extra && Object.keys(entry.extra).length > 0 && !entry.extra.name && (
-          <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 3, fontFamily: "Geist Mono", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {Object.entries(entry.extra).slice(0, 4).map(([k, v]) => (
-              `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`
-            )).join(" · ")}
-          </div>
-        )}
+        {entry.extra && Object.keys(entry.extra).length > 0 && !entry.extra.name && (() => {
+          const summary = formatExtras(entry.action, entry.extra);
+          if (!summary) return null;
+          return (
+            <div style={{ fontSize: 11.5, color: "var(--text-3)", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {summary}
+            </div>
+          );
+        })()}
       </div>
       <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono", flexShrink: 0, paddingTop: 5 }}>
         {new Date(entry.created_at).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" })}

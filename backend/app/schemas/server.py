@@ -19,6 +19,11 @@ class ServerUpdate(BaseModel):
     # null value explicitly clears the channel, omitting leaves unchanged.
     system_channel_id: uuid.UUID | None = None
     welcome_enabled: bool | None = None
+    auto_mod_enabled: bool | None = None
+    auto_mod_words: list[str] | None = None
+    auto_mod_mention_threshold: int | None = Field(None, ge=0, le=50)
+    auto_mod_action: str | None = Field(None, pattern=r"^(delete|timeout)$")
+    auto_mod_timeout_seconds: int | None = Field(None, ge=60, le=60 * 60 * 24 * 7)
 
 
 class ServerMemberUpdate(BaseModel):
@@ -36,6 +41,8 @@ class ServerMemberResponse(BaseModel):
     joined_at: datetime
     user: UserPublic
     role_ids: list[uuid.UUID] = []
+    timeout_until: datetime | None = None
+    timeout_reason: str | None = None
 
 
 class ServerResponse(BaseModel):
@@ -52,6 +59,11 @@ class ServerResponse(BaseModel):
     tag_icon: str | None = None
     system_channel_id: uuid.UUID | None = None
     welcome_enabled: bool = True
+    auto_mod_enabled: bool = False
+    auto_mod_words: list[str] = []
+    auto_mod_mention_threshold: int = 0
+    auto_mod_action: str = "delete"
+    auto_mod_timeout_seconds: int = 300
     created_at: datetime
     member_count: int = 0
 

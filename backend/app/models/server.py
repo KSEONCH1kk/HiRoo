@@ -31,6 +31,17 @@ class Server(Base):
         nullable=True,
     )
     welcome_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # AutoMod — simple config. Word filter trips on any case-insensitive
+    # substring match of `auto_mod_words`. Mention-spam trips when a single
+    # message has ≥ auto_mod_mention_threshold raw @mentions (0 = disabled).
+    # action ∈ {"delete" | "timeout"}. On "timeout" we mute the author for
+    # auto_mod_timeout_seconds.
+    from sqlalchemy.dialects.postgresql import JSONB as _AM_JSONB  # local alias
+    auto_mod_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    auto_mod_words: Mapped[list] = mapped_column(_AM_JSONB, default=list, nullable=False)
+    auto_mod_mention_threshold: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    auto_mod_action: Mapped[str] = mapped_column(String(16), default="delete", nullable=False)
+    auto_mod_timeout_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     owner = relationship("User", foreign_keys=[owner_id])
@@ -58,6 +69,11 @@ class ServerMember(Base):
     nickname: Mapped[str | None] = mapped_column(String(64), nullable=True)
     muted: Mapped[bool] = mapped_column(Boolean, default=False)
     deafened: Mapped[bool] = mapped_column(Boolean, default=False)
+    # NULL = not timed out. Non-null = this member is muted across all
+    # server channels/voice/forums until the timestamp. On any send we
+    # treat `now >= timeout_until` as "timeout expired, clear it".
+    timeout_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    timeout_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Per-user sort order in the left server rail. Lower = higher up.
     # New memberships default to 0; `POST /api/servers/reorder` pushes the
     # saved ordering.

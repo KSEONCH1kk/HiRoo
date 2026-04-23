@@ -13,6 +13,7 @@ import { CreateChannelModal } from "@/components/modals/CreateChannelModal";
 import { ChannelPermissionsModal } from "@/components/modals/ChannelPermissionsModal";
 import { WebhooksModal } from "@/components/modals/WebhooksModal";
 import { RoleAssignModal } from "@/components/modals/RoleAssignModal";
+import { TimeoutModal } from "@/components/modals/TimeoutModal";
 import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
 import { VoiceParticipantMenu } from "@/components/voice/VoiceParticipantMenu";
 import { useUIStore } from "@/store/uiStore";
@@ -50,6 +51,7 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
   const [permsModal, setPermsModal] = useState<Channel | null>(null);
   const [webhooksModal, setWebhooksModal] = useState<Channel | null>(null);
   const [voiceRoleModal, setVoiceRoleModal] = useState<any>(null);
+  const [timeoutModalUser, setTimeoutModalUser] = useState<{ id: string; name?: string } | null>(null);
 
   const kickMember = useMutation({
     mutationFn: (uid: string) => serversApi.kickMember(server.id, uid),
@@ -127,12 +129,7 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
         setChannels(server.id, fresh);
       } catch {}
     },
-    onError: async (e: any) => {
-      console.error("[reorder] BACKEND REJECTED", {
-        status: e?.response?.status,
-        detail: e?.response?.data,
-        payload: e?.config?.data,
-      });
+    onError: async () => {
       // Roll back to server state if the reorder was rejected.
       try {
         const fresh = await channelsApi.list(server.id);
@@ -143,33 +140,20 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
 
   function handleDrop(sourceId: string, targetId: string | null, pos: "before" | "after" | "into") {
     const src = byId.get(sourceId);
-    if (!src) { console.warn("[reorder] src not in byId", sourceId); return; }
-    console.group(`[reorder] src="${src.name}" (${src.type}, ${src.id}) target=${targetId} pos=${pos}`);
-    console.log("src full:", src);
-    const tgt = targetId ? byId.get(targetId) : null;
-    console.log("target full:", tgt);
+    if (!src) return;
     const items: { id: string; position: number; parent_id: string | null }[] = [];
     if (pos === "into") {
       const target = targetId ? byId.get(targetId) : null;
-      if (!target || target.type !== "category" || src.type === "category") { console.groupEnd(); return; }
+      if (!target || target.type !== "category" || src.type === "category") return;
       // Already a direct child of this category → no-op. Otherwise every
       // "into" drop on the same category would re-sort siblings needlessly.
-      if ((src.parent_id ?? null) === target.id) {
-        console.log("  → no-op (already in this category)");
-        console.groupEnd();
-        return;
-      }
+      if ((src.parent_id ?? null) === target.id) return;
       const siblings = (byParent.get(target.id) ?? []).filter((c) => c.id !== sourceId);
       items.push({ id: sourceId, position: siblings.length, parent_id: target.id });
     } else if (targetId === null) {
       // Explicit detach: dropping on the top-level "no category" zone.
-      // If src is already at top-level and we don't need to move parent,
-      // skip to avoid re-emitting and re-numbering everything else.
-      if ((src.parent_id ?? null) === null) {
-        console.log("  → no-op (already top-level)");
-        console.groupEnd();
-        return;
-      }
+      // If src is already at top-level, skip to avoid re-numbering.
+      if ((src.parent_id ?? null) === null) return;
       // Use max(currentTopPos)+1 so positions don't clash with any
       // existing top-level item.
       const maxTop = topLevel
@@ -178,29 +162,21 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
       items.push({ id: sourceId, position: maxTop + 1, parent_id: null });
     } else {
       let target = byId.get(targetId);
-      if (!target) { console.groupEnd(); return; }
+      if (!target) return;
       // Categories can only live at top-level. If the user dropped a
       // category NEAR a channel inside another category, snap the drop
       // onto the parent category instead.
       if (src.type === "category" && target.parent_id) {
         const parent = byId.get(target.parent_id);
-        if (!parent) { console.groupEnd(); return; }
+        if (!parent) return;
         // If the "parent" IS the dragged category (user dropped onto one
         // of its own children), abort — there's no sensible action.
-        if (parent.id === src.id) {
-          console.log("  → no-op (drop on own child)");
-          console.groupEnd();
-          return;
-        }
+        if (parent.id === src.id) return;
         target = parent;
       }
       // Also abort a plain drop where src === target (drops exactly on
       // itself, e.g. from a stale drop target).
-      if (target.id === src.id) {
-        console.log("  → no-op (target === src)");
-        console.groupEnd();
-        return;
-      }
+      if (target.id === src.id) return;
       const newParent = target.parent_id ?? null;
       const siblings = (newParent ? byParent.get(newParent) ?? [] : topLevel)
         .filter((c) => c.id !== sourceId);
@@ -212,8 +188,6 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
         items.push({ id: c.id, position: i, parent_id: newParent });
       });
     }
-    console.log("emitted items:", items);
-    console.groupEnd();
     if (items.length) reorder.mutate(items);
   }
 
@@ -647,6 +621,28 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
           items.push({ separator: true, label: "" } as MenuItem);
           items.push({ icon: "fa-crown", label: "Управление ролями", onClick: () => setVoiceRoleModal(u) });
         }
+        if (!isSelf && has("MODERATE_MEMBERS")) {
+          // Always read the freshest member record from the live members
+          // Map — voiceUserCtx.userInfo is a snapshot captured on right-click
+          // and can be stale after a timeout is applied/cleared.
+          const liveMember = membersById.get(userId) ?? userInfo;
+          const isTimedOut = !!(liveMember?.timeout_until
+            && new Date(liveMember.timeout_until).getTime() > Date.now());
+          if (isTimedOut) {
+            items.push({
+              icon: "fa-hourglass-end", label: "Отменить тайм-аут",
+              onClick: async () => {
+                try { await serversApi.clearTimeout(server.id, userId); qc.invalidateQueries({ queryKey: ["members", server.id] }); } catch {}
+              },
+            });
+          } else {
+            const displayName = liveMember?.nickname || u?.display_name || u?.username;
+            items.push({
+              icon: "fa-hourglass-half", label: "Тайм-аут…",
+              onClick: () => setTimeoutModalUser({ id: userId, name: displayName }),
+            });
+          }
+        }
         if (!isSelf && has("KICK_MEMBERS")) {
           items.push({ icon: "fa-user-minus", label: "Исключить с сервера", danger: true,
             onClick: () => { if (confirm("Исключить участника?")) kickMember.mutate(userId); } });
@@ -677,6 +673,15 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
           serverId={server.id}
           user={voiceRoleModal}
           onClose={() => setVoiceRoleModal(null)}
+        />
+      )}
+
+      {timeoutModalUser && (
+        <TimeoutModal
+          serverId={server.id}
+          userId={timeoutModalUser.id}
+          displayName={timeoutModalUser.name}
+          onClose={() => setTimeoutModalUser(null)}
         />
       )}
 

@@ -70,6 +70,9 @@ async def voice_token(
         perms = await compute_permissions(channel.server_id, current_user.id, db, channel_id=channel.id)
         if not (perms & Permissions.CONNECT_VOICE):
             raise HTTPException(status_code=403, detail="Нет права подключаться к этому голосовому каналу")
+        # Timeout blocks voice join too.
+        from app.services.moderation import ensure_not_timed_out
+        await ensure_not_timed_out(db, channel.server_id, current_user.id)
     elif room.startswith("dm:"):
         try:
             dm_id = uuid.UUID(room.split(":", 1)[1])

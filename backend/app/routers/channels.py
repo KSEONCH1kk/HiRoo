@@ -137,21 +137,11 @@ async def reorder_channels(
     _: ServerMember = Depends(require_permission(Permissions.MANAGE_CHANNELS)),
 ):
     """Bulk update channel positions + parent assignments."""
-    import logging as _dbg
-    _log = _dbg.getLogger("hiroo.channels.reorder")
-    _log.warning("=== REORDER REQUEST server=%s count=%d ===", server_id, len(items))
-    for i in items:
-        _log.warning("  IN  id=%s position=%s parent_id=%s", i.id, i.position, i.parent_id)
-
     ids = [i.id for i in items]
     result = await db.execute(
         select(Channel).where(Channel.server_id == server_id, Channel.id.in_(ids))
     )
     channels_map = {c.id: c for c in result.scalars().all()}
-    _log.warning("  resolved %d channels out of %d ids", len(channels_map), len(ids))
-    for cid, ch in channels_map.items():
-        _log.warning("    channel id=%s name=%r type=%r current_parent=%s current_pos=%s",
-                     cid, ch.name, ch.type, ch.parent_id, ch.position)
 
     # Preload any parent IDs to validate types in one query.
     parent_ids = {i.parent_id for i in items if i.parent_id is not None}
@@ -161,38 +151,24 @@ async def reorder_channels(
             select(Channel).where(Channel.server_id == server_id, Channel.id.in_(parent_ids))
         )
         parents_map = {c.id: c for c in pr.scalars().all()}
-    _log.warning("  parent_ids_in_request=%s  parents_resolved=%s",
-                 list(parent_ids), {str(k): v.type for k, v in parents_map.items()})
 
     for item in items:
         ch = channels_map.get(item.id)
         if not ch:
-            _log.warning("  SKIP id=%s not in channels_map", item.id)
             continue
         ch.position = item.position
         # Categories can't be nested — silently force parent to null for
-        # category rows even if the caller sent one. Prevents bulk reorder
-        # from rejecting the whole request because of one stray item.
+        # category rows even if the caller sent one.
         if ch.type == "category":
-            _log.warning("  CAT  id=%s name=%r → force parent=None (was %s)",
-                         ch.id, ch.name, item.parent_id)
             ch.parent_id = None
             continue
         if item.parent_id is None:
-            _log.warning("  DEN  id=%s name=%r type=%r → parent=None",
-                         ch.id, ch.name, ch.type)
             ch.parent_id = None
         else:
             p = parents_map.get(item.parent_id)
             if not p or p.type != "category":
-                _log.error("  REJ  id=%s name=%r parent_id=%s parent_type=%s",
-                           ch.id, ch.name, item.parent_id,
-                           getattr(p, "type", None))
-                raise HTTPException(status_code=400, detail=f"Неверный parent_id для {ch.name!r}")
-            _log.warning("  OK   id=%s name=%r type=%r → parent=%s (%r)",
-                         ch.id, ch.name, ch.type, p.id, p.name)
+                raise HTTPException(status_code=400, detail="Неверный parent_id")
             ch.parent_id = p.id
-    _log.warning("=== REORDER APPLIED ===")
 
     await db.flush()
     await manager.broadcast_to_server(str(server_id), {

@@ -263,6 +263,12 @@ export function useSocket() {
       qc.invalidateQueries({ queryKey: ["members", sid] });
     };
 
+    const onMemberTimeout = (payload: any) => {
+      const sid = payload?.server_id;
+      if (!sid) return;
+      qc.invalidateQueries({ queryKey: ["members", sid] });
+    };
+
     const onRoleChange = (payload: any) => {
       // payload for role_create/role_update is the RoleResponse object with
       // server_id; role_delete/roles_reorder also include server_id.
@@ -374,6 +380,7 @@ export function useSocket() {
     s.on("audit_log_create", onAuditLogCreate);
     s.on("member_banned", onMemberBanChange);
     s.on("member_unbanned", onMemberBanChange);
+    s.on("member_timeout", onMemberTimeout);
     s.on("role_create", onRoleChange);
     s.on("role_update", onRoleChange);
     s.on("role_delete", onRoleChange);
@@ -422,6 +429,7 @@ export function useSocket() {
       s.off("audit_log_create", onAuditLogCreate);
       s.off("member_banned", onMemberBanChange);
       s.off("member_unbanned", onMemberBanChange);
+      s.off("member_timeout", onMemberTimeout);
       s.off("role_create", onRoleChange);
       s.off("role_update", onRoleChange);
       s.off("role_delete", onRoleChange);

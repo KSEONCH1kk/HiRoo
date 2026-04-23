@@ -9,6 +9,7 @@ import { useServerRoles } from "@/hooks/useServerRoles";
 import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useMyTimeout, formatRemaining } from "@/hooks/useMyTimeout";
 
 interface Props {
   placeholder: string;
@@ -307,6 +308,36 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
   };
 
   const [dragOver, setDragOver] = useState(false);
+
+  const timeoutUntil = useMyTimeout(serverId);
+  if (timeoutUntil) {
+    return (
+      <div style={{ padding: isMobile ? "0 10px 10px" : "0 16px 20px" }}>
+        <div style={{
+          background: "rgba(255,80,80,0.08)",
+          border: "1px solid rgba(255,80,80,0.25)",
+          borderRadius: 10,
+          padding: "14px 16px",
+          display: "flex", alignItems: "center", gap: 12,
+          color: "var(--text-1)",
+        }}>
+          <i className="fa-solid fa-hourglass-half" style={{ fontSize: 18, color: "var(--danger)" }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, color: "var(--text-0)", fontSize: 14 }}>
+              У вас тайм-аут
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 2 }}>
+              Вы не можете отправлять сообщения, подключаться к голосовым каналам
+              и публиковать на форумах. Осталось:{" "}
+              <span style={{ color: "var(--text-0)", fontWeight: 600, fontFamily: "Geist Mono" }}>
+                {formatRemaining(timeoutUntil)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
