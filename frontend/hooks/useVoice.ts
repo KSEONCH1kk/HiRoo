@@ -16,6 +16,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useVoicePresenceStore } from "@/store/voicePresenceStore";
 import { useCallStore } from "@/store/callStore";
 import { useVoiceSettingsStore, screenResolutionSize, screenBitrate } from "@/store/voiceSettingsStore";
+import { track } from "@/lib/science";
 
 // Keeps the Android mic alive while the app is backgrounded. Silently skipped
 // on every non-Android platform (including Electron / web).
@@ -357,6 +358,13 @@ export function useVoice() {
     refresh();
 
     try { getSocket().emit("voice_join", { room_id: roomName }); } catch {}
+    try {
+      (window as any).__science_voice_started_at = Date.now();
+      track("voice_connected", {
+        room_kind: roomName.startsWith("channel:") ? "channel" : roomName.startsWith("dm:") ? "dm" : "other",
+        video: !!opts?.video,
+      });
+    } catch {}
 
     // On Android (Capacitor), promote the call to a foreground service so the
     // mic keeps working while the app is backgrounded / screen locked. No-op
@@ -381,6 +389,14 @@ export function useVoice() {
       try { await r.disconnect(); } catch {}
     }
     try { getSocket().emit("voice_leave", {}); } catch {}
+    try {
+      const startedAt = (window as any).__science_voice_started_at;
+      track("voice_disconnected", {
+        duration_ms: startedAt ? (Date.now() - startedAt) : 0,
+        room_kind: leavingRoom?.startsWith("channel:") ? "channel" : leavingRoom?.startsWith("dm:") ? "dm" : "other",
+      });
+      (window as any).__science_voice_started_at = 0;
+    } catch {}
     try { await _stopVoiceForegroundService(); } catch {}
     const myId = useAuthStore.getState().user?.id;
     if (myId && leavingRoom) {

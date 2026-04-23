@@ -10,6 +10,8 @@ import { useE2EEInit } from "@/hooks/useE2EEInit";
 import { useMobileIntegration } from "@/hooks/useMobileIntegration";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { usePrefsSync } from "@/hooks/usePrefsSync";
+import { useScienceInit } from "@/hooks/useScienceInit";
+import { track } from "@/lib/science";
 import { useBlocksStore } from "@/store/blocksStore";
 import { serversApi, channelsApi } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
@@ -52,6 +54,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   useMobileIntegration();
   useHotkeys();
   usePrefsSync();
+  useScienceInit();
   useEffect(() => { useBlocksStore.getState().refresh(); }, []);
 
   // Auto-close drawers on navigation (mobile UX)
@@ -115,6 +118,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     setActiveServer(id);
     setMode("server");
     router.push(`/servers/${id}`);
+    try { track("server_selected", { server_id: id }); } catch {}
   }, []);
 
   const handlePickMode = useCallback((m: string) => {
@@ -165,7 +169,14 @@ function AppShell({ children }: { children: React.ReactNode }) {
         server={activeServer}
         channels={activeChannels}
         activeChannelId={activeChannelId}
-        onPickChannel={(id) => { setActiveChannel(id); router.push(`/servers/${activeServerId}/channels/${id}`); }}
+        onPickChannel={(id) => {
+          setActiveChannel(id);
+          router.push(`/servers/${activeServerId}/channels/${id}`);
+          try {
+            const ch = (channels[activeServerId ?? ""] ?? []).find((c) => c.id === id);
+            track("channel_selected", { server_id: activeServerId, channel_id: id, channel_type: ch?.type ?? "text" });
+          } catch {}
+        }}
         onPickForum={(id) => { setActiveChannel(id); router.push(`/servers/${activeServerId}/forum/${id}`); }}
         onOpenVoice={handleOpenVoice}
       />

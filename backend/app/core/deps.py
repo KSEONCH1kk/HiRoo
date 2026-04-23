@@ -95,6 +95,23 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     return current_user
 
 
+async def get_current_user_optional(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+) -> User | None:
+    """Как `get_current_user`, но проглатывает 401 и возвращает None.
+    Для эндпоинтов, где auth опционален (Science: анонимные события тоже
+    валидны, просто без user_id)."""
+    if not credentials and not request.headers.get("authorization", "").lower().startswith("bot "):
+        return None
+    try:
+        return await get_current_user(request, credentials, db, redis)
+    except HTTPException:
+        return None
+
+
 async def require_server_member(
     server_id: uuid.UUID,
     current_user: User = Depends(get_current_active_user),

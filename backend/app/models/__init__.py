@@ -21,6 +21,7 @@ from app.models.soundboard import SoundboardSound
 from app.models.template import ServerTemplate
 from app.models.forum import ForumPost, ForumTag, ForumReply
 from app.models.audit import AuditLog
+from app.models.telemetry import TelemetryEvent
 
 __all__ = [
     "User", "Server", "ServerMember", "Channel",
@@ -39,4 +40,5 @@ __all__ = [
     "ServerTemplate",
     "ForumPost", "ForumTag", "ForumReply",
     "AuditLog",
+    "TelemetryEvent",
 ]

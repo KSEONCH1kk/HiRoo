@@ -11,6 +11,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useMyTimeout, formatRemaining } from "@/hooks/useMyTimeout";
 import { VoiceRecorderButton } from "./VoiceRecorderButton";
+import { track } from "@/lib/science";
 
 interface Props {
   placeholder: string;
@@ -303,6 +304,16 @@ export function MessageComposer({ placeholder, channelId, serverId, dmId, onSend
       emitTyping(false);
       if (roomKey && reply) cancelReplyStore(roomKey);
       await onSend(content, reply?.messageId ?? null);
+      try {
+        const len = content.length;
+        const bucket = len <= 20 ? "0-20" : len <= 100 ? "21-100" : len <= 500 ? "101-500" : "500+";
+        track("message_sent", {
+          scope: dmId ? "dm" : "channel",
+          has_attachments: attachments.length > 0,
+          has_reply: !!reply,
+          length_bucket: bucket,
+        });
+      } catch {}
     } finally {
       setSending(false);
     }

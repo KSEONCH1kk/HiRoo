@@ -4,6 +4,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useUIStore } from "@/store/uiStore";
 import { useHotkeysStore } from "@/store/hotkeysStore";
 import { usersApi } from "@/lib/api";
+import { track } from "@/lib/science";
 
 /**
  * Синхронизация пользовательских настроек (тема, акцент, хоткеи) между
@@ -78,6 +79,12 @@ export function usePrefsSync() {
           hydratingRef.current = true;
           useAuthStore.getState().updateUser(updated);
           setTimeout(() => { hydratingRef.current = false; }, 0);
+          try {
+            track("settings_changed", {
+              section: "appearance_or_hotkeys",
+              hotkey_count: Object.keys((payload as any).hotkeys || {}).length,
+            });
+          } catch {}
         } catch (e) {
           // Если запрос упал — сбросим lastSent, чтобы повторная попытка
           // при следующем изменении отправила свежее значение.

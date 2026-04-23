@@ -45,6 +45,10 @@ class User(Base):
     # Хоткеи десктоп-клиента: { "toggle_mute": "CommandOrControl+Shift+M", ... }
     hotkeys: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # ── Telemetry (Science) ───────────────────────────────────────────
+    # Если False — клиентские события молча не принимаются сервером.
+    science_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
     # Which server's clan tag to display next to this user's name (nullable
     # = no tag). Server is expected to have tag_label/tag_icon set and the
     # user must still be a member — enforced at write time, and silently

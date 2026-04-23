@@ -23,6 +23,7 @@ from app.routers import bot_gateway as bot_gateway_router
 from app.routers import interactions as interactions_router
 from app.routers import desktop as desktop_router
 from app.routers import mobile as mobile_router
+from app.routers import science as science_router
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 
@@ -109,6 +110,25 @@ MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS theme VARCHAR(16) NOT NULL DEFAULT 'dark'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS accent_color VARCHAR(9) NOT NULL DEFAULT '#7c5cff'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS hotkeys JSONB",
+    # Science (телеметрия клиента) — opt-out.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS science_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+    """
+    CREATE TABLE IF NOT EXISTS telemetry_events (
+        id BIGSERIAL PRIMARY KEY,
+        user_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+        session_id TEXT NOT NULL,
+        event_name TEXT NOT NULL,
+        properties JSONB NOT NULL DEFAULT '{}'::jsonb,
+        context JSONB NOT NULL DEFAULT '{}'::jsonb,
+        client_track_at TIMESTAMPTZ NOT NULL,
+        client_send_at TIMESTAMPTZ NOT NULL,
+        server_received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ip INET NULL,
+        user_agent TEXT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_telemetry_event_name_received ON telemetry_events (event_name, server_received_at DESC)",
+    "CREATE INDEX IF NOT EXISTS ix_telemetry_user_received ON telemetry_events (user_id, server_received_at DESC)",
     """
     CREATE TABLE IF NOT EXISTS sessions (
         id UUID PRIMARY KEY,
@@ -363,6 +383,7 @@ app.include_router(bot_gateway_router.router)
 app.include_router(interactions_router.router)
 app.include_router(desktop_router.router)
 app.include_router(mobile_router.router)
+app.include_router(science_router.router)
 
 
 @app.get("/health")

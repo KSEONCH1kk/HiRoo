@@ -30,6 +30,7 @@ export interface User {
   theme?: "dark" | "light";
   accent_color?: string;
   hotkeys?: Record<string, string> | null;
+  science_enabled?: boolean;
   tag?: ClanTag | null;
 }
 

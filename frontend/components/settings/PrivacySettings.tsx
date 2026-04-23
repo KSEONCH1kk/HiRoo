@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useAuthStore } from "@/store/authStore";
 import { usersApi } from "@/lib/api";
+import { clearScience } from "@/lib/science";
 
 type DmPerm = "everyone" | "friends";
 type FrPerm = "everyone" | "friends";
@@ -73,6 +74,19 @@ export function PrivacySettings() {
           label="Показывать мой онлайн-статус"
           hint="Если выключено — другие пользователи увидят вас как «Не в сети»."
           saving={saving === "online"}
+        />
+      </Group>
+
+      <Group title="Данные использования">
+        <Toggle
+          checked={user.science_enabled !== false}
+          onChange={(v) => {
+            if (!v) clearScience();  // очищаем очередь, чтобы ничего не ушло до сохранения
+            save({ science_enabled: v }, "science");
+          }}
+          label="Делиться анонимной статистикой использования"
+          hint="Помогает нам улучшать HiRoo. Мы не отправляем содержимое сообщений, никнеймы и т.п. — только обезличенные события (открытие канала, подключение к голосовому каналу, применение настройки)."
+          saving={saving === "science"}
         />
       </Group>
 

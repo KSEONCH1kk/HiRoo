@@ -101,6 +101,8 @@ class UserResponse(BaseModel):
     theme: str = "dark"
     accent_color: str = "#7c5cff"
     hotkeys: dict[str, str] | None = None
+    # Telemetry
+    science_enabled: bool = True
     tag: ClanTag | None = None
 
 
@@ -117,6 +119,8 @@ class PreferencesUpdate(BaseModel):
     # Словарь action_id → accelerator-строка ("CommandOrControl+Shift+M").
     # Пустая строка / null / отсутствие ключа = action не назначен.
     hotkeys: dict[str, str] | None = None
+    # Telemetry opt-out.
+    science_enabled: bool | None = None
 
     @field_validator("hotkeys")
     @classmethod
