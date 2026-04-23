@@ -30,4 +30,21 @@ contextBridge.exposeInMainWorld("hiroo", {
     ipcRenderer.on("hiroo:mute", sub);
     return () => ipcRenderer.removeListener("hiroo:mute", sub);
   },
+
+  // ─ Global hotkeys ─────────────────────────────────────────────────
+  // Renderer passes an array of { id, accelerator } bindings; empty string
+  // or null accelerator unregisters that id. Main process replies with
+  // per-id { ok, error? } so the UI can highlight conflicts.
+  setHotkeys: (bindings) => ipcRenderer.invoke("hiroo:hotkeys:set", bindings),
+  clearHotkeys: () => ipcRenderer.invoke("hiroo:hotkeys:clear"),
+  onHotkey: (handler) => {
+    const sub = (_e, id) => handler(String(id));
+    ipcRenderer.on("hiroo:hotkey", sub);
+    return () => ipcRenderer.removeListener("hiroo:hotkey", sub);
+  },
+  onPtt: (handler) => {
+    const sub = (_e, phase) => handler(phase === "down" ? "down" : "up");
+    ipcRenderer.on("hiroo:ptt", sub);
+    return () => ipcRenderer.removeListener("hiroo:ptt", sub);
+  },
 });

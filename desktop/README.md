@@ -73,8 +73,44 @@ Screen-share picker автоматически перехватывается к
 - в `package.json#config.hirooUrl`, или
 - через env `HIROO_URL` при запуске.
 
+## Выкатка обновления
+
+Клиент сам тянет `/api/desktop/latest` во время сплэша, скачивает
+подходящий под `process.platform-process.arch` инсталлер и запускает
+его (Windows — Squirrel `/S`, macOS/Linux — `shell.openPath`). Чтобы
+выкатить новую версию:
+
+1. **Поднять `"version"`** в `desktop/package.json`.
+2. **Собрать** инсталлеры на всех нужных ОС: `npm run make`.
+3. **Залить** артефакты на хост (например, `/var/www/hiroo-downloads/`) —
+   в prod-nginx уже прописан `location /downloads/ { alias ...; }`. Имена
+   файлов рекомендую `HiRoo-<version>-<platform>-<arch>.<ext>`:
+   ```
+   HiRoo-1.0.1-win-x64.exe
+   HiRoo-1.0.1-mac-arm64.dmg
+   HiRoo-1.0.1-mac-x64.dmg
+   HiRoo-1.0.1-linux-x64.deb
+   ```
+4. **Выставить env-vars** backend'а:
+   ```env
+   HIROO_DESKTOP_VERSION=1.0.1
+   HIROO_DESKTOP_NOTES=Что нового
+   HIROO_DESKTOP_MANDATORY=0           # 1 — если запретить остаться на старой
+   HIROO_DESKTOP_WIN_X64_URL=https://hiroo.intave.tech/downloads/HiRoo-1.0.1-win-x64.exe
+   HIROO_DESKTOP_MAC_ARM64_URL=https://.../HiRoo-1.0.1-mac-arm64.dmg
+   HIROO_DESKTOP_MAC_X64_URL=https://.../HiRoo-1.0.1-mac-x64.dmg
+   HIROO_DESKTOP_LINUX_X64_URL=https://.../HiRoo-1.0.1-linux-x64.deb
+   ```
+5. **Перезапустить** backend: `docker compose -f docker-compose.prod.yml up -d --force-recreate backend`.
+6. **Проверить**: `curl https://hiroo.intave.tech/api/desktop/latest` — увидите
+   `version` и заполненный `assets`.
+
+Любой запущенный клиент при следующем старте подхватит апдейт
+автоматически и покажет прогресс прямо на сплэш-экране.
+
 ## Ограничения
 
 - Нужно вручную экспортировать .ico/.icns/.png из `icon.svg` до первой сборки инсталлятора.
-- Auto-update пока не настроен — добавим `electron-updater` отдельной итерацией.
+- macOS: полностью silent auto-install не делаем — `.dmg` открывается в Finder, пользователь тащит в Applications. Это требование Apple без Developer ID + notarization + helper'а для in-place подмены.
+- Linux: `.deb` тоже открывается через `shell.openPath` (apt/pkexec), без ручного ввода пароля молча доставить не выйдет.
 - `setAppUserModelId` для Windows-нотификаций требует чтобы приложение было установлено через Squirrel (dev-запуск показывает "Electron" как источник).

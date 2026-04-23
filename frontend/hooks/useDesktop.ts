@@ -6,6 +6,9 @@ import { useEffect, useState } from "react";
  * In a regular browser tab `window.hiroo` is undefined, so callers
  * should gate desktop-only features on `available`.
  */
+export interface HotkeyBindingInput { id: string; accelerator: string | null }
+export type HotkeyBindingResult = Record<string, { ok: boolean; error?: string }>;
+
 interface DesktopApi {
   isDesktop: true;
   version: () => Promise<string>;
@@ -14,6 +17,10 @@ interface DesktopApi {
   onShareRequest: (handler: (sources: ShareSource[]) => void) => () => void;
   pickShareSource: (id: string | null) => void;
   onMuteToggle: (handler: (muted: boolean) => void) => () => void;
+  setHotkeys: (bindings: HotkeyBindingInput[]) => Promise<HotkeyBindingResult>;
+  clearHotkeys: () => Promise<{ ok: boolean }>;
+  onHotkey: (handler: (id: string) => void) => () => void;
+  onPtt: (handler: (phase: "down" | "up") => void) => () => void;
 }
 
 export interface ShareSource {

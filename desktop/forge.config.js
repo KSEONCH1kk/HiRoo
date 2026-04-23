@@ -12,7 +12,10 @@ module.exports = {
     appCategoryType: "public.app-category.social-networking",
     extraResource: ["src/assets"],
   },
-  rebuildConfig: {},
+  // uiohook-napi ships prebuilt .node binaries, but @electron/rebuild still
+  // tries to run node-gyp on it and fails. Skipping the rebuild preserves
+  // the prebuilt binary and lets the app find it at runtime.
+  rebuildConfig: { onlyModules: [] },
   makers: [
     // Windows
     { name: "@electron-forge/maker-squirrel", config: {

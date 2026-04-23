@@ -6,12 +6,14 @@ import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { PrivacySettings } from "@/components/settings/PrivacySettings";
 import { NotificationsSettings } from "@/components/settings/NotificationsSettings";
 import { DevicesSettings } from "@/components/settings/DevicesSettings";
+import { HotkeysSettings } from "@/components/settings/HotkeysSettings";
 import { QrScannerSettings } from "@/components/settings/QrScannerSettings";
 import { useAuthStore } from "@/store/authStore";
 import { authApi } from "@/lib/api";
 import { disconnectSocket } from "@/lib/socket";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useMobile } from "@/hooks/useMobile";
+import { useDesktop } from "@/hooks/useDesktop";
 
 const TABS = [
   { id: "profile", label: "Профиль", icon: "fa-user" },
@@ -19,6 +21,7 @@ const TABS = [
   { id: "appearance", label: "Внешний вид", icon: "fa-palette" },
   { id: "privacy", label: "Конфиденциальность", icon: "fa-lock" },
   { id: "notifications", label: "Уведомления", icon: "fa-bell" },
+  { id: "hotkeys", label: "Горячие клавиши", icon: "fa-keyboard", desktopOnly: true },
   { id: "devices", label: "Устройства", icon: "fa-mobile-screen" },
   { id: "qr-login", label: "Вход по QR-коду", icon: "fa-qrcode", mobileOnly: true },
   { id: "developers", label: "Developers", icon: "fa-code", external: "/developers" },
@@ -29,9 +32,14 @@ export default function SettingsPage({ params }: { params: { tab?: string[] } })
   const { clearAuth } = useAuthStore();
   const isMobile = useIsMobile();
   const { available: isCapacitor } = useMobile();
+  const { available: isDesktop } = useDesktop();
   const rawTab = params.tab?.[0];
   const activeTab = rawTab ?? (isMobile ? "" : "profile");
-  const visibleTabs = TABS.filter((t) => !(t as any).mobileOnly || isCapacitor);
+  const visibleTabs = TABS.filter((t) => {
+    if ((t as any).mobileOnly && !isCapacitor) return false;
+    if ((t as any).desktopOnly && !isDesktop) return false;
+    return true;
+  });
 
   const handleLogout = async () => {
     try { await authApi.logout(); } catch {}
@@ -107,6 +115,7 @@ export default function SettingsPage({ params }: { params: { tab?: string[] } })
           {activeTab === "appearance" && <AppearanceSettings />}
           {activeTab === "privacy" && <PrivacySettings />}
           {activeTab === "notifications" && <NotificationsSettings />}
+          {activeTab === "hotkeys" && isDesktop && <HotkeysSettings />}
           {activeTab === "devices" && <DevicesSettings />}
           {activeTab === "qr-login" && <QrScannerSettings />}
         </div>

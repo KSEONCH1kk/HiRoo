@@ -5,6 +5,10 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, shell, Notification,
         session, ipcMain, desktopCapturer, globalShortcut, dialog, net } = require("electron");
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
+const { spawn } = require("node:child_process");
+const ptt = require("./ptt");
 
 // Squirrel (Windows installer) needs this to not launch windows during install.
 if (require("electron-squirrel-startup")) {
@@ -53,7 +57,10 @@ function createSplash() {
     skipTaskbar: true,
     show: false,
     backgroundColor: "#00000000",
-    webPreferences: { contextIsolation: true },
+    webPreferences: {
+      contextIsolation: true,
+      preload: path.join(__dirname, "splash-preload.js"),
+    },
   });
   splashWindow.loadFile(path.join(__dirname, "splash.html"));
   splashWindow.once("ready-to-show", () => splashWindow.show());
@@ -141,9 +148,7 @@ function createMainWindow() {
     }
     mainWindow.show();
     if (DEV) mainWindow.webContents.openDevTools({ mode: "detach" });
-    // Defer the update check until the UI is actually visible so the dialog
-    // doesn't race the splash.
-    setTimeout(() => { checkForUpdates().catch(() => {}); }, 1200);
+    // Обновления проверяются ДО создания главного окна — см. runUpdateFlow().
   });
 
   // Keep the process alive when the user closes the window — app lives in
@@ -218,21 +223,96 @@ ipcMain.handle("hiroo:notify", (_e, { title, body, silent }) => {
 
 ipcMain.handle("hiroo:version", () => app.getVersion());
 
+// ── Global hotkeys ────────────────────────────────────────────────────
+//
+// Renderer calls `hiroo:hotkeys:set` with an array of { id, accelerator }.
+// We diff against the currently registered bindings, unregister the old
+// ones, register the new ones, and emit `hiroo:hotkey` with the action id
+// back to the renderer when a shortcut fires. Invalid accelerators are
+// silently skipped and reported back per-id.
+
+/** @type {Map<string, string>} action id → currently registered accelerator */
+const registeredHotkeys = new Map();
+
+function setHotkey(id, accelerator) {
+  // PTT — отдельная дорожка через uiohook (настоящий keyup).
+  if (id === "push_to_talk") {
+    const res = ptt.setPushToTalk(accelerator || null, {
+      onDown: () => mainWindow?.webContents.send("hiroo:ptt", "down"),
+      onUp:   () => mainWindow?.webContents.send("hiroo:ptt", "up"),
+    });
+    if (res.ok) {
+      if (accelerator) registeredHotkeys.set(id, accelerator);
+      else registeredHotkeys.delete(id);
+    }
+    return res;
+  }
+
+  const prev = registeredHotkeys.get(id);
+  if (prev) {
+    try { globalShortcut.unregister(prev); } catch {}
+    registeredHotkeys.delete(id);
+  }
+  if (!accelerator) return { ok: true };
+  try {
+    const ok = globalShortcut.register(accelerator, () => {
+      mainWindow?.webContents.send("hiroo:hotkey", id);
+      if (id === "toggle_window") {
+        if (mainWindow?.isVisible() && mainWindow.isFocused()) mainWindow.hide();
+        else showMain();
+      }
+    });
+    if (!ok) return { ok: false, error: "register failed" };
+    registeredHotkeys.set(id, accelerator);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+ipcMain.handle("hiroo:hotkeys:set", (_e, bindings) => {
+  const seen = new Set();
+  const results = {};
+  for (const b of Array.isArray(bindings) ? bindings : []) {
+    if (!b || typeof b.id !== "string") continue;
+    seen.add(b.id);
+    results[b.id] = setHotkey(b.id, typeof b.accelerator === "string" ? b.accelerator : null);
+  }
+  // Unregister any previous bindings that aren't in the new list.
+  for (const id of Array.from(registeredHotkeys.keys())) {
+    if (!seen.has(id)) setHotkey(id, null);
+  }
+  return results;
+});
+
+ipcMain.handle("hiroo:hotkeys:clear", () => {
+  for (const id of Array.from(registeredHotkeys.keys())) setHotkey(id, null);
+  return { ok: true };
+});
+
 // ── Lifecycle ─────────────────────────────────────────────────────────
 
 app.on("second-instance", showMain);
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createSplash();
-  // Give the splash a beat to paint before we start the heavy main window.
-  setTimeout(createMainWindow, 150);
   createTray();
 
-  // Ctrl+Shift+H — quick show/hide.
-  globalShortcut.register("CommandOrControl+Shift+H", () => {
-    if (mainWindow?.isVisible()) mainWindow.hide();
-    else showMain();
-  });
+  // Проверяем апдейты пока показываем сплэш. В зависимости от результата:
+  //  - апдейт установлен → quit, процесс выйдет (инсталлер сам перезапустит);
+  //  - апдейта нет / ошибка → обычный запуск.
+  // Даём сплэшу мигнуть и покрасится перед тяжёлой работой.
+  setTimeout(async () => {
+    try {
+      const updated = await runUpdateFlow();
+      if (updated) return;           // инсталлер стартанул, quit уже вызван
+    } catch (e) {
+      console.warn("[hiroo] update flow failed:", e);
+    }
+    createMainWindow();
+  }, 200);
+  // Global hotkeys are installed by the renderer once it reads the user's
+  // persisted bindings — see ipcMain.handle("hiroo:hotkeys:set") above.
 });
 
 app.on("before-quit", () => { forceQuit = true; });
@@ -247,19 +327,23 @@ app.on("activate", () => {
   else showMain();
 });
 
-app.on("will-quit", () => globalShortcut.unregisterAll());
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+  try { ptt.stop(); } catch {}
+});
 
 
-// ── Update checker ────────────────────────────────────────────────────
+// ── Update checker / auto-installer ───────────────────────────────────
 //
-// Simple, non-intrusive: hits /api/desktop/latest once on startup, compares
-// semver against app.getVersion(). If newer, shows a modal offering to open
-// the download link. No silent auto-install — that would need full
-// electron-updater (Squirrel feed) integration, can be added later.
+// Полный флоу: тянем /api/desktop/latest, сравниваем версии, если есть
+// новая — скачиваем инсталлер прямо во время сплэша (с прогрессом),
+// запускаем инсталлятор в тихом режиме и выходим. Если версия не
+// обновилась, загрузка упала или формат релиза не подходит текущей ОС —
+// молча возвращаем false, и запуск продолжается как обычно.
 
 function cmpSemver(a, b) {
-  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
-  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  const pa = String(a).split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split(".").map((n) => parseInt(n, 10) || 0);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
     const da = pa[i] ?? 0, db = pb[i] ?? 0;
     if (da !== db) return da > db ? 1 : -1;
@@ -283,31 +367,147 @@ function fetchJson(url) {
   });
 }
 
-async function checkForUpdates() {
-  const info = await fetchJson(`${HIROO_URL}/api/desktop/latest`);
-  if (!info || !info.version) return;
-  const current = app.getVersion();
-  if (cmpSemver(info.version, current) <= 0) return;   // already up to date
-
-  const { response } = await dialog.showMessageBox(mainWindow || {
-    type: "info",
-  }, {
-    type: "info",
-    title: "Доступна новая версия HiRoo",
-    message: `Установлена ${current}, доступна ${info.version}.`,
-    detail: info.notes || "Обновите, чтобы получить последние улучшения.",
-    buttons: info.mandatory
-      ? ["Скачать"]
-      : ["Скачать", "Позже"],
-    defaultId: 0,
-    cancelId: info.mandatory ? 0 : 1,
-    noLink: true,
+/** Загружает файл по URL. Отдаёт прогресс через onProgress({loaded,total,pct}). */
+function downloadFile(url, destPath, onProgress) {
+  return new Promise((resolve, reject) => {
+    const req = net.request({ method: "GET", url, redirect: "follow" });
+    req.on("response", (res) => {
+      if (res.statusCode && res.statusCode >= 400) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        req.abort();
+        return;
+      }
+      const total = parseInt(res.headers["content-length"] || "0", 10) || 0;
+      const out = fs.createWriteStream(destPath);
+      let loaded = 0;
+      let lastReport = 0;
+      res.on("data", (chunk) => {
+        out.write(chunk);
+        loaded += chunk.length;
+        const now = Date.now();
+        if (now - lastReport > 120) {
+          lastReport = now;
+          if (onProgress) {
+            const pct = total > 0 ? (loaded / total) : 0;
+            try { onProgress({ loaded, total, pct }); } catch {}
+          }
+        }
+      });
+      res.on("end", () => {
+        out.end(() => {
+          if (onProgress) { try { onProgress({ loaded, total, pct: 1 }); } catch {} }
+          resolve(destPath);
+        });
+      });
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+    req.end();
   });
-  if (response === 0 && info.download_url) {
-    shell.openExternal(info.download_url);
-    if (info.mandatory) {
-      forceQuit = true;
-      app.quit();
-    }
+}
+
+function splashSend(channel, payload) {
+  try { splashWindow?.webContents?.send(channel, payload); } catch {}
+}
+
+/** Выбирает для текущей платформы URL инсталлера из release-манифеста. */
+function pickInstallerUrl(info) {
+  const plat = process.platform;
+  const arch = process.arch;
+  const key = `${plat}-${arch}`;
+  // Предпочтительный формат: { assets: { "win32-x64": "https://.../Setup.exe", ... } }
+  if (info.assets && typeof info.assets === "object") {
+    return info.assets[key] || info.assets[plat] || null;
   }
+  // Легаси: единый download_url, угадываем по расширению.
+  if (info.download_url) {
+    const u = String(info.download_url).toLowerCase();
+    if (plat === "win32" && u.endsWith(".exe")) return info.download_url;
+    if (plat === "darwin" && (u.endsWith(".dmg") || u.endsWith(".zip"))) return info.download_url;
+    if (plat === "linux" && (u.endsWith(".deb") || u.endsWith(".appimage"))) return info.download_url;
+  }
+  return null;
+}
+
+/** Запускает скачанный инсталлер. Возвращает true, если процесс передан ОС. */
+function launchInstaller(filePath) {
+  try {
+    if (process.platform === "win32") {
+      // Squirrel-инсталлер: /S = silent. Он сам остановит текущую копию,
+      // поставит новую и перезапустит её. Для надёжности detach + unref.
+      const child = spawn(filePath, ["/S"], { detached: true, stdio: "ignore" });
+      child.unref();
+      return true;
+    }
+    if (process.platform === "darwin") {
+      // DMG-файл — открываем, дальше пользователь перетащит в Applications.
+      // Полностью silent-установку без подписи и helper-приложения не
+      // сделать, поэтому просто открываем образ и выходим.
+      shell.openPath(filePath);
+      return true;
+    }
+    if (process.platform === "linux") {
+      // .deb — передаём apt/pkexec если есть, иначе просто открываем.
+      shell.openPath(filePath);
+      return true;
+    }
+  } catch (e) {
+    console.warn("[hiroo] launchInstaller failed:", e);
+  }
+  return false;
+}
+
+/** Основной апдейт-флоу. Возвращает true, если запущен инсталлер и приложение выходит. */
+async function runUpdateFlow() {
+  const info = await fetchJson(`${HIROO_URL}/api/desktop/latest`);
+  if (!info || !info.version) return false;
+
+  const current = app.getVersion();
+  if (cmpSemver(info.version, current) <= 0) return false;
+
+  const url = pickInstallerUrl(info);
+  if (!url) {
+    // Нет подходящего инсталлера для этой платформы — просто предложим
+    // открыть страницу загрузок и продолжим обычный запуск.
+    return false;
+  }
+
+  splashSend("hiroo:splash:status", {
+    phase: "update",
+    text: `Обновление ${current} → ${info.version}`,
+    version: info.version,
+  });
+
+  const tmp = path.join(os.tmpdir(), `HiRoo-update-${info.version}${path.extname(url) || ".bin"}`);
+  try {
+    await downloadFile(url, tmp, ({ pct, loaded, total }) => {
+      splashSend("hiroo:splash:status", {
+        phase: "update",
+        text: total > 0
+          ? `Обновление ${info.version} — ${Math.round(pct * 100)}%`
+          : `Обновление ${info.version} — ${(loaded / (1024 * 1024)).toFixed(1)} МБ`,
+        progress: pct,
+      });
+    });
+  } catch (e) {
+    console.warn("[hiroo] download failed:", e);
+    splashSend("hiroo:splash:status", { phase: "error", text: "Не удалось загрузить обновление" });
+    // Молчаливо падаем назад в обычный запуск.
+    try { fs.unlinkSync(tmp); } catch {}
+    return false;
+  }
+
+  splashSend("hiroo:splash:status", { phase: "install", text: "Запускаем установку…" });
+
+  const launched = launchInstaller(tmp);
+  if (!launched) {
+    splashSend("hiroo:splash:status", { phase: "error", text: "Не удалось запустить установщик" });
+    return false;
+  }
+
+  // Даём сплэшу показать финальный кадр перед выходом.
+  await new Promise((r) => setTimeout(r, 1200));
+  forceQuit = true;
+  app.quit();
+  return true;
 }
