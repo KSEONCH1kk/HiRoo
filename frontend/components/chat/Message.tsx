@@ -34,6 +34,8 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
   const [hover, setHover] = useState(false);
   const [editValue, setEditValue] = useState(m.content);
   const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);
+  const [bodyCtx, setBodyCtx] = useState<{ x: number; y: number } | null>(null);
+  const [pickerAt, setPickerAt] = useState<{ x: number; y: number } | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [revealBlocked, setRevealBlocked] = useState(false);
   const blocked = useBlocksStore((s) => m.author?.id ? s.blockedIds.has(m.author.id) : false);
@@ -153,6 +155,14 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
   return (
     <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       data-msgid={m.id}
+      onContextMenu={(e) => {
+        // Don't shadow the author-row menu on avatar/name right-click.
+        const tgt = e.target as HTMLElement;
+        if (tgt.closest("[data-author-anchor]")) return;
+        if (editing) return;
+        e.preventDefault();
+        setBodyCtx({ x: e.clientX, y: e.clientY });
+      }}
       style={{
         padding: isGroup
           ? `8px ${SIDE_PAD}px 2px ${SIDE_PAD}px`
@@ -223,7 +233,8 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
         {isGroup && (
           <div
             onClick={isWebhook ? undefined : openProfile}
-            onContextMenu={isWebhook ? undefined : (e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}
+            onContextMenu={isWebhook ? undefined : (e) => { e.preventDefault(); e.stopPropagation(); setCtx({ x: e.clientX, y: e.clientY }); }}
+            data-author-anchor
             style={{ cursor: isWebhook ? "default" : "pointer", flexShrink: 0 }}
           >
             <Avatar name={isWebhook ? webhookDisplayName : (m.author?.username ?? "?")} size={AVATAR_SIZE} shape="circle" avatarUrl={isWebhook ? webhookAvatar : (m.author?.avatar_url ?? null)} />
@@ -234,7 +245,8 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
               <span
                 onClick={isWebhook ? undefined : openProfile}
-                onContextMenu={isWebhook ? undefined : (e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }); }}
+                onContextMenu={isWebhook ? undefined : (e) => { e.preventDefault(); e.stopPropagation(); setCtx({ x: e.clientX, y: e.clientY }); }}
+            data-author-anchor
                 style={{ fontSize: 14, fontWeight: 600, color: isWebhook ? "var(--text-0)" : (authorColor ?? "var(--text-0)"), cursor: isWebhook ? "default" : "pointer" }}
               >
                 {isWebhook ? webhookDisplayName : (m.author?.display_name ?? m.author?.username ?? "Неизвестный")}
@@ -310,6 +322,47 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
       </div>
       {ctx && authorCtxItems.length > 0 && (
         <ContextMenu x={ctx.x} y={ctx.y} items={authorCtxItems} onClose={() => setCtx(null)} />
+      )}
+
+      {bodyCtx && (() => {
+        const items: MenuItem[] = [];
+        if (!m.is_deleted) {
+          items.push({
+            icon: "fa-face-smile", label: "Добавить реакцию",
+            onClick: () => { const pt = bodyCtx; setBodyCtx(null); if (pt) setPickerAt(pt); },
+          });
+          items.push({ icon: "fa-reply", label: "Ответить", onClick: beginReply });
+          if (isMe) {
+            items.push({ icon: "fa-pen", label: "Редактировать", onClick: () => startEdit(m.id) });
+          }
+          items.push({ separator: true, label: "" } as MenuItem);
+          items.push({
+            icon: "fa-copy", label: "Копировать текст",
+            onClick: () => { try { navigator.clipboard?.writeText(m.content); } catch {} },
+          });
+        }
+        items.push({
+          icon: "fa-hashtag", label: "Копировать ID",
+          onClick: () => { try { navigator.clipboard?.writeText(m.id); } catch {} },
+        });
+        if ((isMe || canManageMessages) && !m.is_deleted) {
+          items.push({ separator: true, label: "" } as MenuItem);
+          items.push({
+            icon: "fa-trash", label: "Удалить сообщение", danger: true,
+            onClick: () => { if (confirm("Удалить сообщение?")) onDelete?.(m.id); },
+          });
+        }
+        return <ContextMenu x={bodyCtx.x} y={bodyCtx.y} items={items} onClose={() => setBodyCtx(null)} />;
+      })()}
+
+      {pickerAt && (
+        <div style={{ position: "fixed", left: pickerAt.x, top: pickerAt.y, zIndex: 300 }}>
+          <EmojiPicker
+            anchor="bottom-right"
+            onPick={(e) => { onReact?.(m.id, e); setPickerAt(null); }}
+            onClose={() => setPickerAt(null)}
+          />
+        </div>
       )}
     </div>
   );

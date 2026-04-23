@@ -127,7 +127,12 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
         setChannels(server.id, fresh);
       } catch {}
     },
-    onError: async () => {
+    onError: async (e: any) => {
+      console.error("[reorder] BACKEND REJECTED", {
+        status: e?.response?.status,
+        detail: e?.response?.data,
+        payload: e?.config?.data,
+      });
       // Roll back to server state if the reorder was rejected.
       try {
         const fresh = await channelsApi.list(server.id);
@@ -138,26 +143,68 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
 
   function handleDrop(sourceId: string, targetId: string | null, pos: "before" | "after" | "into") {
     const src = byId.get(sourceId);
-    if (!src) return;
+    if (!src) { console.warn("[reorder] src not in byId", sourceId); return; }
+    console.group(`[reorder] src="${src.name}" (${src.type}, ${src.id}) target=${targetId} pos=${pos}`);
+    console.log("src full:", src);
+    const tgt = targetId ? byId.get(targetId) : null;
+    console.log("target full:", tgt);
     const items: { id: string; position: number; parent_id: string | null }[] = [];
     if (pos === "into") {
       const target = targetId ? byId.get(targetId) : null;
-      if (!target || target.type !== "category" || src.type === "category") return;
+      if (!target || target.type !== "category" || src.type === "category") { console.groupEnd(); return; }
+      // Already a direct child of this category → no-op. Otherwise every
+      // "into" drop on the same category would re-sort siblings needlessly.
+      if ((src.parent_id ?? null) === target.id) {
+        console.log("  → no-op (already in this category)");
+        console.groupEnd();
+        return;
+      }
       const siblings = (byParent.get(target.id) ?? []).filter((c) => c.id !== sourceId);
       items.push({ id: sourceId, position: siblings.length, parent_id: target.id });
     } else if (targetId === null) {
       // Explicit detach: dropping on the top-level "no category" zone.
-      // Single-item update keeps the payload minimal and removes any chance
-      // of wrong sibling math when sourceId is in a nested category.
-      const existingTop = topLevel.filter((c) => c.id !== sourceId).length;
-      items.push({ id: sourceId, position: existingTop, parent_id: null });
+      // If src is already at top-level and we don't need to move parent,
+      // skip to avoid re-emitting and re-numbering everything else.
+      if ((src.parent_id ?? null) === null) {
+        console.log("  → no-op (already top-level)");
+        console.groupEnd();
+        return;
+      }
+      // Use max(currentTopPos)+1 so positions don't clash with any
+      // existing top-level item.
+      const maxTop = topLevel
+        .filter((c) => c.id !== sourceId)
+        .reduce((m, c) => Math.max(m, c.position), -1);
+      items.push({ id: sourceId, position: maxTop + 1, parent_id: null });
     } else {
-      const target = byId.get(targetId);
-      if (!target) return;
+      let target = byId.get(targetId);
+      if (!target) { console.groupEnd(); return; }
+      // Categories can only live at top-level. If the user dropped a
+      // category NEAR a channel inside another category, snap the drop
+      // onto the parent category instead.
+      if (src.type === "category" && target.parent_id) {
+        const parent = byId.get(target.parent_id);
+        if (!parent) { console.groupEnd(); return; }
+        // If the "parent" IS the dragged category (user dropped onto one
+        // of its own children), abort — there's no sensible action.
+        if (parent.id === src.id) {
+          console.log("  → no-op (drop on own child)");
+          console.groupEnd();
+          return;
+        }
+        target = parent;
+      }
+      // Also abort a plain drop where src === target (drops exactly on
+      // itself, e.g. from a stale drop target).
+      if (target.id === src.id) {
+        console.log("  → no-op (target === src)");
+        console.groupEnd();
+        return;
+      }
       const newParent = target.parent_id ?? null;
       const siblings = (newParent ? byParent.get(newParent) ?? [] : topLevel)
         .filter((c) => c.id !== sourceId);
-      let insertIdx = siblings.findIndex((c) => c.id === target.id);
+      let insertIdx = siblings.findIndex((c) => c.id === target!.id);
       if (insertIdx < 0) insertIdx = siblings.length;
       if (pos === "after") insertIdx += 1;
       siblings.splice(insertIdx, 0, src);
@@ -165,6 +212,8 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
         items.push({ id: c.id, position: i, parent_id: newParent });
       });
     }
+    console.log("emitted items:", items);
+    console.groupEnd();
     if (items.length) reorder.mutate(items);
   }
 
@@ -415,7 +464,16 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
               if (src) handleDrop(src, null, "after");
             }}
             style={{
-              marginTop: 12, padding: dragId ? "18px 10px" : "10px 10px",
+              // When no drag is active the zone collapses to 0-height and
+              // becomes invisible+non-interactive — but stays mounted so a
+              // freshly-started drag doesn't lose its drop target to a DOM
+              // mutation mid-drag.
+              marginTop: dragId ? 12 : 0,
+              padding: dragId ? "18px 10px" : 0,
+              maxHeight: dragId ? 80 : 0,
+              overflow: "hidden",
+              opacity: dragId ? 1 : 0,
+              pointerEvents: dragId ? "auto" : "none",
               borderRadius: 8,
               border: `2px dashed ${dropTarget?.id === null ? "var(--accent)" : "var(--line)"}`,
               background: dropTarget?.id === null ? "rgba(124,92,255,0.15)" : "transparent",
@@ -423,12 +481,11 @@ export function ChannelSidebar({ server, channels, activeChannelId, onPickChanne
               fontSize: 11, fontWeight: 600,
               textAlign: "center", letterSpacing: 0.3,
               textTransform: "uppercase",
-              opacity: dragId ? 1 : 0.35,
               transition: "all 140ms",
             }}
           >
             <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 6 }} />
-            {dragId ? "Вынести за пределы категории" : "Зона без категории"}
+            Вынести за пределы категории
           </div>
         )}
       </div>
@@ -688,6 +745,13 @@ function SidebarItem(props: SidebarItemProps) {
         data-ch-item
         draggable={canManage}
         onDragStart={(e) => {
+          // If the drag was started on a nested child row, its own
+          // dragstart already fired — don't let this one overwrite the
+          // dataTransfer payload via bubbling.
+          if ((e.target as HTMLElement) !== e.currentTarget
+              && (e.target as HTMLElement).closest("[data-ch-item]") !== e.currentTarget) {
+            return;
+          }
           if (!canManage) return;
           e.dataTransfer.setData("hiroo/channel", ch.id);
           e.dataTransfer.effectAllowed = "move";

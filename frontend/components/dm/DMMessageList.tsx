@@ -9,6 +9,7 @@ import { MessageContent } from "@/components/chat/MessageContent";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { FailedMessageList } from "@/components/chat/FailedMessageList";
 import { EmojiPicker } from "@/components/ui/EmojiPicker";
+import { ContextMenu, type MenuItem } from "@/components/ui/ContextMenu";
 import { formatMessageTime } from "@/lib/utils";
 import { isEncrypted, decryptDirect, decryptGroup, DIRECT_PREFIX, GROUP_PREFIX } from "@/lib/e2ee";
 import type { DMMessageType } from "@/types";
@@ -138,6 +139,8 @@ function DMMessageItem({ msg, grouped, isMe, editing, onStartEdit, onCancelEdit,
   const [hover, setHover] = useState(false);
   const [editValue, setEditValue] = useState(msg.content);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [bodyCtx, setBodyCtx] = useState<{ x: number; y: number } | null>(null);
+  const [pickerAt, setPickerAt] = useState<{ x: number; y: number } | null>(null);
   const startReply = useChatStore((s) => s.startReply);
 
   useEffect(() => { if (editing) setEditValue(msg.content); }, [editing, msg.content]);
@@ -231,6 +234,11 @@ function DMMessageItem({ msg, grouped, isMe, editing, onStartEdit, onCancelEdit,
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       data-msgid={msg.id}
+      onContextMenu={(e) => {
+        if (editing) return;
+        e.preventDefault();
+        setBodyCtx({ x: e.clientX, y: e.clientY });
+      }}
       style={{ display: "flex", flexDirection: "column", padding: grouped ? "1px 0 1px 42px" : "6px 0", position: "relative", background: hover ? "var(--bg-hover)" : "transparent", borderRadius: 4 }}
     >
       {msg.reply_to && (
@@ -334,6 +342,47 @@ function DMMessageItem({ msg, grouped, isMe, editing, onStartEdit, onCancelEdit,
         )}
       </div>
       </div>
+
+      {bodyCtx && (() => {
+        const items: MenuItem[] = [];
+        if (!msg.is_deleted) {
+          items.push({
+            icon: "fa-face-smile", label: "Добавить реакцию",
+            onClick: () => { const p = bodyCtx; setBodyCtx(null); if (p) setPickerAt(p); },
+          });
+          items.push({ icon: "fa-reply", label: "Ответить", onClick: beginReply });
+          if (isMe) {
+            items.push({ icon: "fa-pen", label: "Редактировать", onClick: onStartEdit });
+          }
+          items.push({ separator: true, label: "" } as MenuItem);
+          items.push({
+            icon: "fa-copy", label: "Копировать текст",
+            onClick: () => { try { navigator.clipboard?.writeText(msg.content); } catch {} },
+          });
+        }
+        items.push({
+          icon: "fa-hashtag", label: "Копировать ID",
+          onClick: () => { try { navigator.clipboard?.writeText(msg.id); } catch {} },
+        });
+        if (isMe && !msg.is_deleted) {
+          items.push({ separator: true, label: "" } as MenuItem);
+          items.push({
+            icon: "fa-trash", label: "Удалить сообщение", danger: true,
+            onClick: () => { if (confirm("Удалить сообщение?")) onDelete(msg.id); },
+          });
+        }
+        return <ContextMenu x={bodyCtx.x} y={bodyCtx.y} items={items} onClose={() => setBodyCtx(null)} />;
+      })()}
+
+      {pickerAt && (
+        <div style={{ position: "fixed", left: pickerAt.x, top: pickerAt.y, zIndex: 300 }}>
+          <EmojiPicker
+            anchor="bottom-right"
+            onPick={(e) => { onReact(msg.id, e); setPickerAt(null); }}
+            onClose={() => setPickerAt(null)}
+          />
+        </div>
+      )}
     </div>
   );
 }
