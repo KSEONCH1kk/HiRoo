@@ -238,6 +238,10 @@ export const serversApi = {
     api.post<{ invite_code: string }>(`/api/servers/${id}/invite`).then((r) => r.data),
   reorder: (orderedIds: string[]) =>
     api.post(`/api/servers/reorder`, orderedIds),
+  auditLog: (id: string, params: { limit?: number; before?: string; action?: string; actor_id?: string } = {}) =>
+    api.get<{ entries: AuditEntry[]; next_cursor: string | null }>(
+      `/api/servers/${id}/audit-log`, { params },
+    ).then((r) => r.data),
   myPermissions: (id: string) =>
     api.get<{ permissions: number }>(`/api/servers/${id}/me/permissions`).then((r) => r.data.permissions),
   uploadIcon: (id: string, file: File) => {
@@ -262,6 +266,18 @@ export interface ServerBan {
   user_id: string;
   banned_by: string | null;
   reason: string | null;
+  created_at: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  actor_id: string | null;
+  action: string;
+  target_user_id: string | null;
+  target_channel_id: string | null;
+  target_role_id: string | null;
+  reason: string | null;
+  extra: Record<string, any> | null;
   created_at: string;
 }
 
@@ -378,6 +394,8 @@ export const rolesApi = {
     api.patch<Role>(`/api/servers/${serverId}/roles/${roleId}`, data).then((r) => r.data),
   delete: (serverId: string, roleId: string) =>
     api.delete(`/api/servers/${serverId}/roles/${roleId}`),
+  reorder: (serverId: string, orderedIds: string[]) =>
+    api.post(`/api/servers/${serverId}/roles/reorder`, orderedIds),
   memberRoles: (serverId: string, userId: string) =>
     api.get<string[]>(`/api/servers/${serverId}/roles/members/${userId}`).then((r) => r.data),
   setMemberRoles: (serverId: string, userId: string, roleIds: string[]) =>

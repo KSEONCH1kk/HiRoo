@@ -56,6 +56,8 @@ export interface Server {
   is_discoverable: boolean;
   tag_label?: string | null;
   tag_icon?: string | null;
+  system_channel_id?: string | null;
+  welcome_enabled?: boolean;
   created_at: string;
   member_count: number;
 }
@@ -118,6 +120,7 @@ export interface Message {
   id: string;
   channel_id: string;
   author_id: string | null;
+  type?: "text" | "system_welcome";
   content: string;
   reply_to_id: string | null;
   reply_to: ReplyPreview | null;

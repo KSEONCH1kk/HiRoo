@@ -22,11 +22,27 @@ class Server(Base):
     # members who picked this server as their active tag source.
     tag_label: Mapped[str | None] = mapped_column(String(8), nullable=True)
     tag_icon: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # System messages (welcome on join, etc). Null system_channel_id hides
+    # them entirely. welcome_enabled lets admins keep the channel but
+    # temporarily mute welcomes without losing the selection.
+    system_channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    welcome_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     owner = relationship("User", foreign_keys=[owner_id])
     members = relationship("ServerMember", back_populates="server", cascade="all, delete-orphan")
-    channels = relationship("Channel", back_populates="server", cascade="all, delete-orphan")
+    # Explicit foreign_keys because the server also has system_channel_id
+    # pointing BACK to channels, which creates two FK paths between the
+    # two tables and confuses SQLAlchemy's auto-join resolution.
+    channels = relationship(
+        "Channel", back_populates="server",
+        cascade="all, delete-orphan",
+        foreign_keys="Channel.server_id",
+    )
 
 
 class ServerMember(Base):

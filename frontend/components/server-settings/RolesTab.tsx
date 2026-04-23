@@ -12,11 +12,49 @@ export function RolesTab({ serverId }: { serverId: string }) {
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Role | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; pos: "before" | "after" } | null>(null);
 
   const { data: roles = [] } = useQuery<Role[]>({
     queryKey: ["roles", serverId],
     queryFn: () => rolesApi.list(serverId),
   });
+
+  const reorder = useMutation({
+    mutationFn: (orderedIds: string[]) => rolesApi.reorder(serverId, orderedIds),
+    onError: () => qc.invalidateQueries({ queryKey: ["roles", serverId] }),
+  });
+
+  function handleReorder(sourceId: string, targetId: string, pos: "before" | "after") {
+    if (sourceId === targetId) return;
+    // sorted goes top → bottom (highest position first).
+    const list = [...roles].sort((a, b) => b.position - a.position);
+    const src = list.find((r) => r.id === sourceId);
+    const tgt = list.find((r) => r.id === targetId);
+    if (!src || !tgt) return;
+    // @everyone is always at the bottom — don't let it move.
+    if (src.is_everyone) return;
+    const filtered = list.filter((r) => r.id !== sourceId && !r.is_everyone);
+    let idx = filtered.findIndex((r) => r.id === targetId);
+    if (idx < 0) idx = filtered.length;
+    if (pos === "after") idx += 1;
+    filtered.splice(idx, 0, src);
+    const everyoneRole = list.find((r) => r.is_everyone);
+    const finalOrder = [...filtered.map((r) => r.id)];
+    if (everyoneRole) finalOrder.push(everyoneRole.id);
+    // Optimistic — update react-query cache for instant visual feedback.
+    qc.setQueryData<Role[]>(["roles", serverId], (old) => {
+      if (!old) return old;
+      const total = finalOrder.length;
+      return old.map((r) => {
+        const idx = finalOrder.indexOf(r.id);
+        if (idx < 0) return r;
+        if (r.is_everyone) return { ...r, position: 0 };
+        return { ...r, position: total - idx };
+      });
+    });
+    reorder.mutate(finalOrder);
+  }
 
   useEffect(() => {
     if (!selectedId && roles.length > 0) setSelectedId(roles[0].id);
@@ -56,22 +94,60 @@ export function RolesTab({ serverId }: { serverId: string }) {
           </button>
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: 4 }}>
-          {sorted.map((r) => (
-            <div
-              key={r.id}
-              onClick={() => setSelectedId(r.id)}
-              style={{
-                padding: "7px 10px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
-                background: selectedId === r.id ? "var(--bg-active)" : "transparent",
-              }}
-              onMouseEnter={(e) => { if (selectedId !== r.id) e.currentTarget.style.background = "var(--bg-hover)"; }}
-              onMouseLeave={(e) => { if (selectedId !== r.id) e.currentTarget.style.background = "transparent"; }}
-            >
-              <span style={{ width: 10, height: 10, borderRadius: "50%", background: r.color, flexShrink: 0 }} />
-              <span style={{ fontSize: 13, color: "var(--text-0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
-              {r.is_everyone && <span style={{ fontSize: 9, color: "var(--text-3)", fontFamily: "Geist Mono" }}>default</span>}
-            </div>
-          ))}
+          {sorted.map((r) => {
+            const canDrag = !r.is_everyone;
+            const hl = dropTarget?.id === r.id ? dropTarget.pos : null;
+            return (
+              <div
+                key={r.id}
+                draggable={canDrag}
+                onDragStart={(e) => {
+                  if (!canDrag) return;
+                  e.dataTransfer.setData("hiroo/role", r.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  setDragId(r.id);
+                }}
+                onDragEnd={() => { setDragId(null); setDropTarget(null); }}
+                onDragOver={(e) => {
+                  if (!e.dataTransfer.types.includes("hiroo/role")) return;
+                  if (r.is_everyone) return;
+                  e.preventDefault();
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  const pos = (e.clientY - rect.top) < rect.height / 2 ? "before" : "after";
+                  setDropTarget({ id: r.id, pos });
+                }}
+                onDragLeave={() => setDropTarget((t) => (t?.id === r.id ? null : t))}
+                onDrop={(e) => {
+                  const src = e.dataTransfer.getData("hiroo/role");
+                  e.preventDefault();
+                  const pos = dropTarget?.id === r.id ? dropTarget.pos : "after";
+                  setDropTarget(null);
+                  setDragId(null);
+                  if (src) handleReorder(src, r.id, pos);
+                }}
+                onClick={() => setSelectedId(r.id)}
+                style={{
+                  padding: "7px 10px", borderRadius: 6,
+                  cursor: canDrag ? "grab" : "pointer",
+                  display: "flex", alignItems: "center", gap: 8,
+                  background: selectedId === r.id ? "var(--bg-active)" : "transparent",
+                  opacity: dragId === r.id ? 0.45 : 1,
+                  position: "relative",
+                  borderTop: hl === "before" ? "2px solid var(--accent)" : "2px solid transparent",
+                  borderBottom: hl === "after" ? "2px solid var(--accent)" : "2px solid transparent",
+                }}
+                onMouseEnter={(e) => { if (selectedId !== r.id && !dragId) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { if (selectedId !== r.id) e.currentTarget.style.background = "transparent"; }}
+              >
+                {canDrag && (
+                  <i className="fa-solid fa-grip-vertical" style={{ fontSize: 10, color: "var(--text-3)", flexShrink: 0, opacity: 0.6 }} />
+                )}
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background: r.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: "var(--text-0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                {r.is_everyone && <span style={{ fontSize: 9, color: "var(--text-3)", fontFamily: "Geist Mono" }}>default</span>}
+              </div>
+            );
+          })}
           {sorted.length === 0 && <div style={{ padding: 16, textAlign: "center", fontSize: 12, color: "var(--text-3)" }}>Ролей пока нет</div>}
         </div>
       </div>

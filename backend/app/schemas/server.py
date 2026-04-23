@@ -16,6 +16,9 @@ class ServerUpdate(BaseModel):
     # Passing "" clears the tag; omitting leaves it unchanged.
     tag_label: str | None = Field(None, max_length=8)
     tag_icon: str | None = Field(None, max_length=32)
+    # null value explicitly clears the channel, omitting leaves unchanged.
+    system_channel_id: uuid.UUID | None = None
+    welcome_enabled: bool | None = None
 
 
 class ServerMemberUpdate(BaseModel):
@@ -47,6 +50,8 @@ class ServerResponse(BaseModel):
     is_discoverable: bool = False
     tag_label: str | None = None
     tag_icon: str | None = None
+    system_channel_id: uuid.UUID | None = None
+    welcome_enabled: bool = True
     created_at: datetime
     member_count: int = 0
 

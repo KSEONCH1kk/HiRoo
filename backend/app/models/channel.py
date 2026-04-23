@@ -29,5 +29,10 @@ class Channel(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    server = relationship("Server", back_populates="channels")
+    # Same FK-ambiguity workaround as on Server.channels — disambiguate by
+    # pinning to our own server_id column.
+    server = relationship(
+        "Server", back_populates="channels",
+        foreign_keys=[server_id],
+    )
     messages = relationship("Message", back_populates="channel", cascade="all, delete-orphan")

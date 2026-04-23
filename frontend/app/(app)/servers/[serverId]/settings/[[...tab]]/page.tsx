@@ -12,6 +12,8 @@ import { InvitesTab } from "@/components/server-settings/InvitesTab";
 import { TagTab } from "@/components/server-settings/TagTab";
 import { SoundboardTab } from "@/components/server-settings/SoundboardTab";
 import { TemplatesTab } from "@/components/server-settings/TemplatesTab";
+import { AuditLogTab } from "@/components/server-settings/AuditLogTab";
+import { BansTab } from "@/components/server-settings/BansTab";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PermissionKey } from "@/lib/permissions";
 import type { Server } from "@/types";
@@ -25,6 +27,8 @@ const TABS: { id: string; label: string; icon: string; perm?: PermissionKey }[] 
   { id: "tag", label: "Тэг сервера", icon: "fa-tag", perm: "MANAGE_SERVER" },
   { id: "soundboard", label: "Звуковая панель", icon: "fa-music" },
   { id: "templates", label: "Шаблоны", icon: "fa-clone", perm: "MANAGE_SERVER" },
+  { id: "bans", label: "Забаненные", icon: "fa-user-slash", perm: "BAN_MEMBERS" },
+  { id: "audit", label: "Журнал аудита", icon: "fa-scroll", perm: "MANAGE_SERVER" },
 ];
 
 export default function ServerSettingsPage({ params }: { params: { serverId: string; tab?: string[] } }) {
@@ -134,6 +138,8 @@ export default function ServerSettingsPage({ params }: { params: { serverId: str
               {active === "tag" && <TagTab server={server} />}
               {active === "soundboard" && <SoundboardTab serverId={serverId} />}
               {active === "templates" && <TemplatesTab serverId={serverId} />}
+              {active === "bans" && <BansTab serverId={serverId} />}
+              {active === "audit" && <AuditLogTab serverId={serverId} />}
             </>
           )}
         </div>

@@ -14,7 +14,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.rate_limit import limiter
 from app.middleware.security import SecurityHeadersMiddleware
 from app.middleware.logging import LoggingMiddleware
-from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy, qr_auth, soundboard, templates as templates_router, forum as forum_router
+from app.routers import auth, users, servers, channels, messages, friends, dms, inbox, voice, ws, uploads, roles, unfurl, proxy, qr_auth, soundboard, templates as templates_router, forum as forum_router, audit as audit_router
 from app.routers import webhooks as webhooks_router
 from app.routers import applications as applications_router
 from app.routers import oauth2 as oauth2_router
@@ -212,6 +212,28 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_forum_replies_created_at ON forum_replies (created_at)",
     # Per-user sort order in the server rail (distinct for each member).
     "ALTER TABLE server_members ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0",
+    # Welcome / system messages: admin picks a channel + toggles on/off.
+    "ALTER TABLE servers ADD COLUMN IF NOT EXISTS system_channel_id UUID REFERENCES channels(id) ON DELETE SET NULL",
+    "ALTER TABLE servers ADD COLUMN IF NOT EXISTS welcome_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS type VARCHAR(16) NOT NULL DEFAULT 'text'",
+    # Audit log — immutable admin/bot action trail, viewable by admins
+    # with MANAGE_SERVER.
+    """
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id UUID PRIMARY KEY,
+        server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        action VARCHAR(48) NOT NULL,
+        target_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        target_channel_id UUID REFERENCES channels(id) ON DELETE SET NULL,
+        target_role_id UUID REFERENCES roles(id) ON DELETE SET NULL,
+        reason VARCHAR(500),
+        extra JSONB,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_audit_logs_server_id ON audit_logs (server_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS ix_audit_logs_action ON audit_logs (action)",
 ]
 
 
@@ -298,6 +320,7 @@ app.include_router(templates_router.router)
 app.include_router(templates_router.public_router)
 app.include_router(forum_router.router)
 app.include_router(forum_router.replies_router)
+app.include_router(audit_router.router)
 app.include_router(users.router)
 app.include_router(users.tag_icons_router)
 app.include_router(servers.router)

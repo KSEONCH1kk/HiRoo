@@ -1,12 +1,12 @@
 "use client";
 import { useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { serversApi } from "@/lib/api";
+import { serversApi, channelsApi } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Toggle } from "@/components/ui/Toggle";
 import { ImageCropModal } from "@/components/modals/ImageCropModal";
-import type { Server } from "@/types";
+import type { Server, Channel } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -171,6 +171,9 @@ export function OverviewTab({ server }: { server: Server }) {
         <Toggle on={server.is_discoverable} onChange={(v) => toggleDiscover.mutate(v)} />
       </div>
 
+      <SystemChannelSection server={server} />
+
+
       <div style={{ marginTop: 20, padding: 20, borderRadius: 12, border: "1px solid rgba(255,80,80,0.3)", background: "rgba(255,80,80,0.05)" }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: "var(--danger)", marginBottom: 6 }}>Опасная зона</div>
         <div style={{ fontSize: 13, color: "var(--text-2)", marginBottom: 12 }}>
@@ -199,6 +202,78 @@ export function OverviewTab({ server }: { server: Server }) {
           onClose={() => setPendingCrop(null)}
         />
       )}
+    </div>
+  );
+}
+
+function SystemChannelSection({ server }: { server: Server }) {
+  const qc = useQueryClient();
+  const { data: channels = [] } = useQuery<Channel[]>({
+    queryKey: ["channels", server.id],
+    queryFn: () => channelsApi.list(server.id),
+  });
+  const textChannels = channels.filter((c) => c.type === "text" || c.type === "announcement");
+
+  const patch = useMutation({
+    mutationFn: (data: Partial<Server>) => serversApi.update(server.id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["server", server.id] });
+      qc.invalidateQueries({ queryKey: ["my-servers"] });
+    },
+  });
+
+  return (
+    <div style={{
+      padding: "14px 16px", borderRadius: 10,
+      background: "var(--bg-2)", border: "1px solid var(--line)",
+      display: "flex", flexDirection: "column", gap: 14,
+    }}>
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-0)" }}>
+          <i className="fa-solid fa-bullhorn" style={{ marginRight: 8, color: "var(--accent)" }} />
+          Приветственные сообщения
+        </div>
+        <div style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 2, lineHeight: 1.5 }}>
+          Выберите канал для системных сообщений — при вступлении нового участника бот опубликует
+          случайное приветствие в выбранном канале.
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2)", textTransform: "uppercase", letterSpacing: 0.5, flex: "0 0 auto" }}>
+          Канал
+        </label>
+        <select
+          value={server.system_channel_id ?? ""}
+          onChange={(e) => patch.mutate({ system_channel_id: e.target.value || null } as any)}
+          disabled={patch.isPending}
+          style={{
+            flex: "1 1 240px", padding: "9px 12px", borderRadius: 8,
+            background: "var(--bg-0)", border: "1px solid var(--line-strong)",
+            color: "var(--text-0)", fontSize: 14, outline: "none",
+          }}
+        >
+          <option value="">— не назначен —</option>
+          {textChannels.map((c) => (
+            <option key={c.id} value={c.id}>#{c.name}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-0)" }}>
+            Приветствия новичков
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-2)", marginTop: 1 }}>
+            Отправлять «X прыгнул на сервер…» когда кто-то присоединяется
+          </div>
+        </div>
+        <Toggle
+          on={!!server.welcome_enabled}
+          onChange={(v) => patch.mutate({ welcome_enabled: v } as any)}
+        />
+      </div>
     </div>
   );
 }

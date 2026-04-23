@@ -43,7 +43,7 @@ async def create_channel(
     server_id: uuid.UUID,
     body: ChannelCreate,
     db: AsyncSession = Depends(get_db),
-    _: ServerMember = Depends(require_permission(Permissions.MANAGE_CHANNELS)),
+    admin: ServerMember = Depends(require_permission(Permissions.MANAGE_CHANNELS)),
 ):
     # Validate parent: must be a category in the same server, and the new
     # channel itself must not be a category (no nested categories).
@@ -69,6 +69,13 @@ async def create_channel(
     await db.flush()
     await db.refresh(channel)
 
+    from app.services.audit import audit_log
+    await audit_log(
+        db, server_id, admin.user_id, "channel_create",
+        target_channel_id=channel.id,
+        extra={"name": channel.name, "type": channel.type},
+    )
+
     await manager.broadcast_to_server(str(server_id), {
         "event": "channel_create",
         "data": ChannelResponse.model_validate(channel).model_dump(mode="json"),
@@ -82,7 +89,7 @@ async def update_channel(
     channel_id: uuid.UUID,
     body: ChannelUpdate,
     db: AsyncSession = Depends(get_db),
-    _: ServerMember = Depends(require_permission(Permissions.MANAGE_CHANNELS)),
+    admin: ServerMember = Depends(require_permission(Permissions.MANAGE_CHANNELS)),
 ):
     result = await db.execute(
         select(Channel).where(Channel.id == channel_id, Channel.server_id == server_id)
@@ -109,6 +116,12 @@ async def update_channel(
                 raise HTTPException(status_code=400, detail="Категории не могут быть вложенными")
             channel.parent_id = parent.id
     await db.flush()
+    from app.services.audit import audit_log
+    await audit_log(
+        db, server_id, admin.user_id, "channel_update",
+        target_channel_id=channel.id,
+        extra=body.model_dump(exclude_none=True, exclude_unset=True, mode="json"),
+    )
     await manager.broadcast_to_server(str(server_id), {
         "event": "channel_update",
         "data": ChannelResponse.model_validate(channel).model_dump(mode="json"),
@@ -178,7 +191,7 @@ async def delete_channel(
     server_id: uuid.UUID,
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: ServerMember = Depends(require_permission(Permissions.MANAGE_CHANNELS)),
+    admin: ServerMember = Depends(require_permission(Permissions.MANAGE_CHANNELS)),
 ):
     result = await db.execute(
         select(Channel).where(Channel.id == channel_id, Channel.server_id == server_id)
@@ -186,7 +199,14 @@ async def delete_channel(
     channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    ch_name = channel.name
+    ch_type = channel.type
     await db.delete(channel)
+    from app.services.audit import audit_log
+    await audit_log(
+        db, server_id, admin.user_id, "channel_delete",
+        extra={"name": ch_name, "type": ch_type, "channel_id": str(channel_id)},
+    )
     await manager.broadcast_to_server(str(server_id), {
         "event": "channel_delete",
         "data": {"server_id": str(server_id), "channel_id": str(channel_id)},

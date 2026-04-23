@@ -192,6 +192,15 @@ async def join_server(
         "data": {"server_id": str(server.id), "user_id": str(current_user.id)},
     })
     manager.join_server(str(server.id), str(current_user.id))
+
+    # System welcome (opt-in via server.system_channel_id + welcome_enabled).
+    try:
+        from app.services.welcome import emit_welcome_message
+        await emit_welcome_message(db, server, current_user)
+    except Exception:
+        import logging as _l
+        _l.getLogger("hiroo.welcome").exception("welcome emit failed")
+
     return _server_response(server, count)
 
 
@@ -258,7 +267,24 @@ async def update_server(
             server.tag_icon = icon
         else:
             raise HTTPException(status_code=400, detail="Недопустимая иконка тэга")
+    if "system_channel_id" in body.model_fields_set:
+        if body.system_channel_id is None:
+            server.system_channel_id = None
+        else:
+            from app.models.channel import Channel as _Ch
+            cr = await db.execute(select(_Ch).where(_Ch.id == body.system_channel_id))
+            ch = cr.scalar_one_or_none()
+            if not ch or ch.server_id != server.id or ch.type not in ("text", "announcement"):
+                raise HTTPException(status_code=400, detail="Канал недоступен для системных сообщений")
+            server.system_channel_id = ch.id
+    if body.welcome_enabled is not None:
+        server.welcome_enabled = body.welcome_enabled
     await db.flush()
+    from app.services.audit import audit_log
+    await audit_log(
+        db, server.id, admin.user_id, "server_update",
+        extra=body.model_dump(exclude_none=True, exclude_unset=True, mode="json"),
+    )
     count = await _member_count(db, server.id)
     return _server_response(server, count)
 
@@ -372,6 +398,8 @@ async def kick_member(
     u = ur.scalar_one_or_none()
     if u and u.active_tag_server_id == server_id:
         u.active_tag_server_id = None
+    from app.services.audit import audit_log
+    await audit_log(db, server_id, admin.user_id, "member_kick", target_user_id=user_id)
     await manager.broadcast_to_server(str(server_id), {
         "event": "member_kick",
         "data": {"server_id": str(server_id), "user_id": str(user_id)},
@@ -449,6 +477,11 @@ async def create_ban(
         db.add(ban)
     await db.flush()
 
+    from app.services.audit import audit_log
+    await audit_log(
+        db, server_id, admin.user_id, "member_ban",
+        target_user_id=body.user_id, reason=body.reason,
+    )
     await manager.broadcast_to_server(str(server_id), {
         "event": "member_banned",
         "data": {"server_id": str(server_id), "user_id": str(body.user_id)},
@@ -461,7 +494,7 @@ async def remove_ban(
     server_id: uuid.UUID,
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: ServerMember = Depends(require_permission(Permissions.BAN_MEMBERS)),
+    admin: ServerMember = Depends(require_permission(Permissions.BAN_MEMBERS)),
 ):
     res = await db.execute(
         select(ServerBan).where(ServerBan.server_id == server_id, ServerBan.user_id == user_id)
@@ -470,6 +503,8 @@ async def remove_ban(
     if ban:
         await db.delete(ban)
         await db.flush()
+        from app.services.audit import audit_log
+        await audit_log(db, server_id, admin.user_id, "member_unban", target_user_id=user_id)
         await manager.broadcast_to_server(str(server_id), {
             "event": "member_unbanned",
             "data": {"server_id": str(server_id), "user_id": str(user_id)},

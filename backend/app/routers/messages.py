@@ -72,6 +72,7 @@ def _build_response(msg: Message, current_user_id: uuid.UUID) -> MessageResponse
         id=msg.id,
         channel_id=msg.channel_id,
         author_id=msg.author_id,
+        type=getattr(msg, "type", "text") or "text",
         content=msg.content,
         reply_to_id=msg.reply_to_id,
         reply_to=reply_to,

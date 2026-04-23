@@ -116,6 +116,40 @@ export function Message({ message: m, prevAuthorId, currentUserId, authorColor, 
     );
   }
 
+  // System messages (welcome, etc.) render as a slim inline banner without
+  // avatar or grouping — resembles Discord's "X joined" line.
+  if (m.type === "system_welcome") {
+    const name = m.author?.display_name ?? m.author?.username ?? "Кто-то";
+    // Template uses "{name} ..." — split off the name at the start so we can
+    // click it to open the profile.
+    const rest = m.content.startsWith(name) ? m.content.slice(name.length) : ` ${m.content}`;
+    return (
+      <div style={{
+        padding: `6px ${SIDE_PAD}px 6px ${GROUPED_INDENT}px`,
+        display: "flex", alignItems: "center", gap: 8,
+        fontSize: 13.5, color: "var(--text-2)", lineHeight: 1.4,
+      }}>
+        <i className="fa-solid fa-arrow-right-to-bracket"
+           style={{ fontSize: 11, color: "var(--ok, #58cf8c)", flexShrink: 0 }} />
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+          <span
+            onClick={() => m.author && useUIStore.getState().setProfileUser(m.author as any)}
+            style={{
+              fontWeight: 600, color: "var(--text-0)",
+              cursor: m.author ? "pointer" : "default",
+            }}
+          >
+            {name}
+          </span>
+          <span>{rest}</span>
+          <span style={{ marginLeft: 6, fontSize: 11, color: "var(--text-3)", fontFamily: "Geist Mono" }}>
+            {formatMessageTime(m.created_at)}
+          </span>
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       data-msgid={m.id}

@@ -103,6 +103,7 @@ class MessageResponse(BaseModel):
     id: uuid.UUID
     channel_id: uuid.UUID
     author_id: uuid.UUID | None
+    type: str = "text"
     content: str
     reply_to_id: uuid.UUID | None
     reply_to: ReplyPreview | None = None
