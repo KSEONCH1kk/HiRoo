@@ -188,15 +188,11 @@ router = APIRouter(tags=["websocket"])
 async def websocket_endpoint(
     ws: WebSocket,
     token: str | None = Query(None),
-    compress: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
     await ws.accept()
     user: User | None = None
-    # Нормализуем запрошенный режим компрессии. Пока поддерживаем только
-    # "zlib-stream" — единый deflate-стрим на соединение (см. Discord).
-    compression = compress if compress == "zlib-stream" else None
 
     try:
         # Auth via query param or first message
@@ -225,10 +221,8 @@ async def websocket_endpoint(
             await ws.close(code=4001)
             return
 
-        # Register connection — и здесь же создаём deflate-стрим, если
-        # клиент попросил компрессию. Все последующие send_* через
-        # manager пойдут через compressor.
-        await manager.connect(str(user.id), ws, compression=compression)
+        # Register connection
+        await manager.connect(str(user.id), ws)
 
         # Join all servers user belongs to
         result = await db.execute(
@@ -237,14 +231,14 @@ async def websocket_endpoint(
         for (sid,) in result.all():
             manager.join_server(str(sid), str(user.id))
 
-        await manager.send_to_socket(ws, {
+        await ws.send_text(json.dumps({
             "event": "ready",
             "data": {
                 "user_id": str(user.id),
                 "server_muted": manager.is_server_muted(str(user.id)),
                 "server_deafened": manager.is_server_deafened(str(user.id)),
             },
-        })
+        }))
 
         # Update status to online and commit immediately so other sessions see it
         user.status = "online"
@@ -302,14 +296,14 @@ async def websocket_endpoint(
         muted_list = [u for u in relevant_users if manager.is_server_muted(u)]
         deafened_list = [u for u in relevant_users if manager.is_server_deafened(u)]
         if snapshot or muted_list or deafened_list:
-            await manager.send_to_socket(ws, {
+            await ws.send_text(json.dumps({
                 "event": "voice_snapshot",
                 "data": {
                     "rooms": snapshot,
                     "muted_users": muted_list,
                     "deafened_users": deafened_list,
                 },
-            })
+            }))
 
         # Main receive loop
         while True:
@@ -383,16 +377,16 @@ async def websocket_endpoint(
                     from app.models.role import Permissions as _Perms
                     perms = await _cp(ch_auth.server_id, user.id, db, channel_id=ch_auth.id)
                     if (perms & _Perms.CONNECT_VOICE) == 0:
-                        await manager.send_to_socket(ws, {
+                        await ws.send_text(json.dumps({
                             "event": "error",
                             "data": {"message": "Нет права подключаться к этому каналу"},
-                        })
+                        }))
                         continue
                 existing, is_new_call = await manager.voice_join(str(user.id), room_id)
-                await manager.send_to_socket(ws, {
+                await ws.send_text(json.dumps({
                     "event": "voice_room_joined",
                     "data": {"room_id": room_id, "peers": existing},
-                })
+                }))
                 if is_new_call and room_id.startswith("dm:"):
                     try:
                         await _log_call_started(db, room_id, str(user.id))
@@ -705,10 +699,10 @@ async def websocket_endpoint(
                     continue
                 perms = await _cp(sound.server_id, user.id, db)
                 if not ((perms & _Perms.USE_SOUNDBOARD) or (perms & _Perms.ADMIN)):
-                    await manager.send_to_socket(ws, {
+                    await ws.send_text(json.dumps({
                         "event": "error",
                         "data": {"message": "Нет права использовать звуки этого сервера"},
-                    })
+                    }))
                     continue
 
                 # Also enforce channel-level CONNECT_VOICE / SPEAK_VOICE if

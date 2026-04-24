@@ -24,7 +24,6 @@ import asyncio
 import json
 import logging
 import uuid
-import zlib
 from datetime import datetime, timezone
 from typing import Any
 
@@ -32,16 +31,6 @@ import redis.asyncio as aioredis
 from fastapi import WebSocket
 
 log = logging.getLogger("hiroo.ws")
-
-# zlib-stream: compressobj per-connection, все сообщения склеены в один
-# deflate-поток через Z_SYNC_FLUSH. Клиент читает бинарные кадры до
-# маркера 0x00 0x00 0xFF 0xFF и декомпрессирует непрерывным Inflate.
-_ZLIB_COMPRESSION_LEVEL = 6   # стандартный баланс для Discord-like трафика
-_ZLIB_WBITS = 15              # классический deflate+zlib wrapper
-
-# Per-connection компрессоры. Хранится отдельно от self._connections,
-# чтобы WebSocket-объект оставался чистым ключом set'а.
-_compressors: dict[WebSocket, "zlib._Compress"] = {}
 
 
 class ConnectionManager:
@@ -361,10 +350,10 @@ class ConnectionManager:
     # ── Connections ──────────────────────────────────────────────────
 
     async def connect(self, user_id: str, ws: WebSocket, *, compression: str | None = None) -> None:
+        # `compression` больше не используется — оставлен в сигнатуре для
+        # обратной совместимости с вызывающим кодом.
         first = user_id not in self._connections or not self._connections[user_id]
         self._connections.setdefault(user_id, set()).add(ws)
-        if compression == "zlib-stream":
-            _compressors[ws] = zlib.compressobj(_ZLIB_COMPRESSION_LEVEL, zlib.DEFLATED, _ZLIB_WBITS)
         if first:
             await self._ref_user(user_id)
             if self._redis:
@@ -375,7 +364,6 @@ class ConnectionManager:
         if user_id not in self._connections:
             return
         self._connections[user_id].discard(ws)
-        _compressors.pop(ws, None)
         if not self._connections[user_id]:
             del self._connections[user_id]
             await self._unref_user(user_id)
@@ -405,18 +393,9 @@ class ConnectionManager:
     # ── Delivery ─────────────────────────────────────────────────────
 
     async def send_to_socket(self, ws: WebSocket, data: dict) -> None:
-        """Отправить одному конкретному сокету с учётом его компрессии.
-        Для всех ws.send_text() мест в эндпоинтах — чтобы они не
-        обходили deflate-стрим и клиент не получал mix бинарных + текстовых
-        кадров."""
-        payload = json.dumps(data, separators=(",", ":"))
+        """Отправить одному конкретному сокету (ready, voice_snapshot)."""
         try:
-            comp = _compressors.get(ws)
-            if comp is not None:
-                chunk = comp.compress(payload.encode("utf-8")) + comp.flush(zlib.Z_SYNC_FLUSH)
-                await ws.send_bytes(chunk)
-            else:
-                await ws.send_text(payload)
+            await ws.send_text(json.dumps(data))
         except Exception:
             log.exception("send_to_socket failed")
 
@@ -425,23 +404,12 @@ class ConnectionManager:
         if not sockets:
             return
         dead = set()
-        # Один JSON делаем один раз. Для zlib-stream — жмём per-ws,
-        # потому что каждый поток хранит своё состояние (shared dictionary).
-        payload = json.dumps(data, separators=(",", ":"))
-        payload_bytes = payload.encode("utf-8")
+        payload = json.dumps(data)
         for ws in sockets:
-            try:
-                comp = _compressors.get(ws)
-                if comp is not None:
-                    chunk = comp.compress(payload_bytes) + comp.flush(zlib.Z_SYNC_FLUSH)
-                    await ws.send_bytes(chunk)
-                else:
-                    await ws.send_text(payload)
-            except Exception:
-                dead.add(ws)
+            try: await ws.send_text(payload)
+            except Exception: dead.add(ws)
         for ws in dead:
             self._connections.get(user_id, set()).discard(ws)
-            _compressors.pop(ws, None)
 
     async def send_to_user(self, user_id: str, data: dict) -> None:
         if self._redis:
